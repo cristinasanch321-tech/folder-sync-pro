@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FolderSync Pro</title>
+<style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #161719; color: #eee; padding: 14px; margin: 0; font-size: 11px; }
+    h3 { text-align: center; font-size: 16px; margin: 0 0 4px; }
+    .sub { text-align: center; color: #9aa; font-size: 10px; margin-bottom: 12px; }
+    .card { background: #232529; border: 1px solid #333; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+    .frow { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid #2c2e33; }
+    .frow:last-child { border-bottom: none; }
+    .fnum { color: #777; width: 14px; }
+    .fname { font-weight: bold; flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fpath { color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+    .sublbl { color: #9aa; font-size: 10px; }
+    .switch { position: relative; width: 34px; height: 18px; background: #444; border-radius: 9px; cursor: pointer; transition: background .15s; flex-shrink: 0; }
+    .switch.on { background: #34c759; }
+    .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+    .switch.on::after { left: 18px; }
+    .del { background: none; border: none; color: #e05252; font-size: 14px; cursor: pointer; padding: 2px 6px; }
+    .addrow { display: flex; align-items: center; gap: 8px; padding: 8px; color: #6ab04c; cursor: pointer; font-weight: bold; }
+    .addrow:hover { background: #2a2d32; border-radius: 6px; }
+    label { display: block; font-weight: bold; margin-bottom: 4px; color: #9aa; font-size: 10px; text-transform: uppercase; }
+    select, input[type="text"] { width: 100%; background: #17181b; color: #fff; border: 1px solid #444; padding: 6px; border-radius: 6px; box-sizing: border-box; font-size: 11px; margin-bottom: 6px; }
+    .radio { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #666; flex-shrink: 0; }
+    .radio.on .dot { border-color: #34c759; background: #34c759; }
+    .btns { display: flex; gap: 8px; margin-top: 8px; }
+    button { padding: 9px 0; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; color: #fff; width: 100%; }
+    #btnImport { background: #34c759; flex: 1; }
+    #btnImport:hover { background: #2ca94e; }
+    #btnRefresh { background: #6a3cb5; flex: 1; }
+    #btnResync { background: #2e86de; flex: 1; }
+    #btnResync:hover { background: #2469ad; }
+    #btnRefresh:hover { background: #58309c; }
+    .chk { display: flex; align-items: center; gap: 6px; color: #ccc; margin: 4px 0; }
+    .chk input { width: auto; }
+    #drop { border: 2px dashed #555; border-radius: 8px; padding: 10px; text-align: center; color: #888; margin-top: 6px; font-size: 10px; }
+    #drop.over { border-color: #34c759; color: #34c759; }
+    #files { max-height: 220px; overflow-y: auto; }
+    .file { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-bottom: 1px solid #2c2e33; }
+    .sdot { width: 8px; height: 8px; border-radius: 50%; background: #666; flex-shrink: 0; }
+    .sdot.yes { background: #34c759; }
+    .sdot.new { background: #f5a623; }
+    .flek { margin-left: auto; color: #888; font-size: 10px; }
+    #status { margin-top: 8px; font-size: 10px; color: #9aa; white-space: pre-wrap; word-break: break-word; max-height: 90px; overflow-y: auto; }
+    .count { color: #888; font-size: 10px; margin: 6px 0 2px; }
+</style>
+</head>
+<body>
+    <h3>FolderSync Pro</h3>
+    <div class="sub">Importa automáticamente tus carpetas de medios a Premiere Pro.</div>
+
+    <div class="card" id="foldersCard">
+        <div id="folders"></div>
+        <div class="addrow" id="btnAdd">＋ Add additional folders</div>
+        <div id="drop">…o arrastra carpetas aquí</div>
+    </div>
+
+    <div class="card">
+        <label>Import Mode</label>
+        <div class="radio on" id="modeCombine"><div class="dot"></div>Combine all files into one bin</div>
+        <div class="radio" id="modeSeparate"><div class="dot"></div>Create separate bins for each folder</div>
+
+        <label>Bin padre (existente o raíz)</label>
+        <select id="binParent"><option value="">Raíz del proyecto</option></select>
+        <label>Nombre del bin destino</label>
+        <input type="text" id="binName" value="Media">
+        <div class="chk"><input type="checkbox" id="autoImport"> Auto-import: importar nuevos archivos al detectarlos</div>
+    </div>
+
+    <div class="btns">
+        <button id="btnImport">Import</button>
+        <button id="btnRefresh">Refresh</button>
+        <button id="btnResync">⟳ Resync</button>
+    </div>
+
+    <div class="card">
+        <label>Files in Folders</label>
+        <div class="count" id="fileCount">0 archivos</div>
+        <div id="files"></div>
+    </div>
+
+    <div id="status">Comprobando Premiere...</div>
+
+    <script src="./js/CSInterface.js"></script>
+    <script>
+        const csInterface = new CSInterface();
+        const fs = require('fs');
+        const path = require('path');
+        const statusEl = document.getElementById('status');
+
+        const MEDIA_EXT = ['mp4','mov','mxf','avi','m4v','mpg','mpeg','mts','m2ts','m2t','wmv',
+            'wav','aif','aiff','mp3','m4a','aac','flac','ogg','wma','ac3',
+            'png','jpg','jpeg','tif','tiff','gif','psd','ai','bmp','tga','dpx','heic','webp',
+            'r3d','braw','prproj','v1','drp'];
+        const POLL_MS = 4000;
+
+        let folders = [];        // {id, name, path, sub}
+        let importedMap = {};    // {ruta: timestamp}
+        let importing = false;
+        let mode = 'combine';
+
+        function extDir() {
+            try { return csInterface.getSystemPath(SystemPath.EXTENSION); }
+            catch (e) { return path.join(os.homedir(), 'Library/Application Support/Adobe/CEP/extensions/folder-sync-pro'); }
+        }
+        const os = require('os');
+        const dataFile = path.join(extDir(), 'fs_data.json');
+
+        function saveData() {
+            try { fs.writeFileSync(dataFile, JSON.stringify({ folders, importedMap, mode })); }
+            catch (e) { statusEl.innerText = 'No pude guardar datos: ' + e.message; }
+        }
+        function loadData() {
+            try {
+                const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+                folders = d.folders || [];
+                importedMap = d.importedMap || {};
+                mode = d.mode || 'combine';
+            } catch (e) {}
+        }
+
+        function evalJSX(fn, cb) { csInterface.evalScript(fn, cb); }
+
+        // ---------- UI: carpetas ----------
+        function renderFolders() {
+            const el = document.getElementById('folders');
+            el.innerHTML = '';
+            folders.forEach((f, i) => {
+                const row = document.createElement('div');
+                row.className = 'frow';
+                row.innerHTML = `<span class="fnum">${i + 1}</span>
+                    <span class="fname">${escapeHtml(f.name)}</span>
+                    <span class="fpath">${escapeHtml(f.path)}</span>
+                    <span class="sublbl">Sub-folder</span>
+                    <div class="switch ${f.sub ? 'on' : ''}" data-id="${f.id}"></div>
+                    <button class="del" data-id="${f.id}">－</button>`;
+                el.appendChild(row);
+            });
+            el.querySelectorAll('.switch').forEach(sw => sw.addEventListener('click', () => {
+                const f = folders.find(x => x.id === sw.dataset.id);
+                f.sub = !f.sub; saveData(); renderFolders(); scanAndRender(true);
+            }));
+            el.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => {
+                folders = folders.filter(x => x.id !== b.dataset.id);
+                saveData(); renderFolders(); scanAndRender(true);
+            }));
+        }
+        function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function addFolder(p, name) {
+            if (folders.some(f => f.path === p)) { statusEl.innerText = 'Esa carpeta ya está vigilada.'; return; }
+            folders.push({ id: 'f' + Date.now() + Math.floor(Math.random()*999), name: name || p.split('/').pop(), path: p, sub: false });
+            saveData(); renderFolders(); scanAndRender(true);
+        }
+
+        document.getElementById('btnAdd').addEventListener('click', () => {
+            evalJSX('FS_pickFolder()', (res) => {
+                try { const r = JSON.parse(res); if (r.ok) addFolder(r.path, r.name); }
+                catch (e) { statusEl.innerText = 'Respuesta: ' + res; }
+            });
+        });
+
+        const drop = document.getElementById('drop');
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+        drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+        drop.addEventListener('drop', (e) => {
+            e.preventDefault(); drop.classList.remove('over');
+            for (const f of e.dataTransfer.files) {
+                try {
+                    const st = fs.statSync(f.path);
+                    if (st.isDirectory()) addFolder(f.path, path.basename(f.path));
+                } catch (err) {}
+            }
+        });
+
+        // ---------- UI: modo y bins ----------
+        function setMode(m) {
+            mode = m; saveData();
+            document.getElementById('modeCombine').classList.toggle('on', m === 'combine');
+            document.getElementById('modeSeparate').classList.toggle('on', m === 'separate');
+        }
+        document.getElementById('modeCombine').addEventListener('click', () => setMode('combine'));
+        document.getElementById('modeSeparate').addEventListener('click', () => setMode('separate'));
+
+        function refreshBins() {
+            evalJSX('FS_listBins()', (res) => {
+                const sel = document.getElementById('binParent');
+                const prev = sel.value;
+                sel.innerHTML = '<option value="">Raíz del proyecto</option>';
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) r.bins.forEach(b => {
+                        const o = document.createElement('option');
+                        o.value = b.join('|'); o.textContent = b.join(' / ');
+                        sel.appendChild(o);
+                    });
+                } catch (e) {}
+                if (prev) sel.value = prev;
+            });
+        }
+
+        // ---------- escaneo ----------
+        function scanFolder(folder) {
+            const out = [];
+            const walk = (dir, rel) => {
+                let entries;
+                try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+                for (const e of entries) {
+                    if (e.name.startsWith('.')) continue;
+                    const full = path.join(dir, e.name);
+                    if (e.isDirectory()) { if (folder.sub) walk(full, rel ? rel + '/' + e.name : e.name); continue; }
+                    const ext = e.name.split('.').pop().toLowerCase();
+                    if (MEDIA_EXT.includes(ext)) out.push({ path: full, name: e.name, rel: rel || '' });
+                }
+            };
+            walk(folder.path, '');
+            return out;
+        }
+
+        function scanAll() {
+            const all = [];
+            folders.forEach(f => scanFolder(f).forEach(x => all.push({ ...x, folderId: f.id, folderName: f.name })));
+            return all;
+        }
+
+        function scanAndRender(keepStatus) {
+            if (!keepStatus) {} // reserva
+            const files = scanAll();
+            const box = document.getElementById('files');
+            box.innerHTML = '';
+            let nYes = 0;
+            files.sort((a, b) => a.folderName.localeCompare(b.folderName) || a.name.localeCompare(b.name));
+            files.forEach(x => {
+                const imp = !!importedMap[x.path];
+                if (imp) nYes++;
+                const isNew = !imp && !x.seen;
+                const d = document.createElement('div');
+                d.className = 'file';
+                d.innerHTML = `<div class="sdot ${imp ? 'yes' : 'new'}"></div>
+                    <span>${escapeHtml(x.name)}</span><span class="flek">${escapeHtml(x.folderName)}${x.rel ? '/' + escapeHtml(x.rel) : ''}</span>`;
+                box.appendChild(d);
+            });
+            document.getElementById('fileCount').textContent =
+                `${files.length} archivos · ${nYes} importados`;
+            return files;
+        }
+
+        // ---------- importacion ----------
+        function groupOps(files) {
+            const parent = document.getElementById('binParent').value
+                ? document.getElementById('binParent').value.split('|') : [];
+            const root = document.getElementById('binName').value.trim() || 'Media';
+            const ops = {};
+            for (const f of files) {
+                let binPath;
+                if (mode === 'combine') {
+                    binPath = parent.concat([root]).concat(f.rel ? f.rel.split('/') : []);
+                } else {
+                    binPath = parent.concat([root, f.folderName]).concat(f.rel ? f.rel.split('/') : []);
+                }
+                const key = binPath.join('|');
+                (ops[key] = ops[key] || { binPath, files: [] }).files.push(f.path);
+            }
+            return Object.values(ops);
+        }
+
+        function doImport(files, auto) {
+            if (!files.length) { if (!auto) statusEl.innerText = 'No hay archivos nuevos que importar.'; return; }
+            if (importing) return;
+            importing = true;
+            statusEl.innerText = `Importando ${files.length} archivo(s) a Premiere...`;
+            const payload = { ops: groupOps(files) };
+            evalJSX('FS_import(' + JSON.stringify(JSON.stringify(payload)) + ')', (res) => {
+                importing = false;
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) {
+                        const now = Date.now();
+                        files.forEach(f => importedMap[f.path] = now);
+                        saveData(); renderFolders(); scanAndRender(true); refreshBins();
+                        let msg = `✔ Importados: ${r.imported} · en bin: ${r.moved}`;
+                        if (r.direct) msg += ` (directo: ${r.direct} op.)`;
+                        if (r.failed && r.failed.length) msg += '\n⚠️ NO llegaron al bin:\n' + r.failed.slice(0, 5).join('\n');
+                        if (r.errors && r.errors.length) msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
+                        statusEl.innerText = msg;
+                    } else statusEl.innerText = 'Error: ' + (r.errors || []).join(' | ');
+                } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
+            });
+        }
+
+        document.getElementById('btnImport').addEventListener('click', () => {
+            const files = scanAll().filter(f => !importedMap[f.path]);
+            doImport(files, false);
+        });
+        document.getElementById('btnRefresh').addEventListener('click', () => {
+            refreshBins(); scanAndRender(true); statusEl.innerText = 'Actualizado.';
+        });
+
+        document.getElementById('btnResync').addEventListener('click', () => {
+            if (!folders.length) { statusEl.innerText = 'No hay carpetas vigiladas.'; return; }
+            if (importing) return;
+            const all = scanAll();
+            const rootName = document.getElementById('binName').value.trim() || 'Media';
+            const parent = document.getElementById('binParent').value
+                ? document.getElementById('binParent').value.split('|') : [];
+            const payload = {
+                groups: groupOps(all)
+            };
+            importing = true;
+            statusEl.innerText = '⟳ Resync: importando lo que falte (NUNCA borra)...';
+            evalJSX('FS_sync(' + JSON.stringify(JSON.stringify(payload)) + ')', (res) => {
+                importing = false;
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) {
+                        const now = Date.now();
+                        all.forEach(f => importedMap[f.path] = now);
+                        saveData(); renderFolders(); scanAndRender(true); refreshBins();
+                        let msg = `⟳ Resync · añadidos: ${r.imported} · en bin: ${r.moved} (nada se ha borrado)`;
+                        if (r.failed && r.failed.length) msg += '\n⚠️ NO llegaron al bin:\n' + r.failed.slice(0, 5).join('\n');
+                        // limpieza SOLO del registro interno del panel (no toca Premiere)
+                        let purged = 0;
+                        for (const k of Object.keys(importedMap)) {
+                            try { if (!fs.existsSync(k)) { delete importedMap[k]; purged++; } } catch (e2) {}
+                        }
+                        if (purged) msg += `\nRegistro del panel limpiado: ${purged} ruta(s) que ya no existen en disco`;
+                        if (r.errors && r.errors.length)
+                            msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
+                        statusEl.innerText = msg;
+                    } else statusEl.innerText = 'Error: ' + (r.errors || []).join(' | ');
+                } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
+            });
+        });
+
+        // ---------- vigilancia ----------
+        setInterval(() => {
+            if (importing || !folders.length) { scanAndRender(true); return; }
+            const pend = scanAll().filter(f => !importedMap[f.path]);
+            if (pend.length && document.getElementById('autoImport').checked) doImport(pend, true);
+            else scanAndRender(true);
+        }, POLL_MS);
+
+        // ---------- arranque ----------
+        loadData();
+        setMode(mode);
+        renderFolders();
+        scanAndRender(true);
+        refreshBins();
+        evalJSX('FS_ping()', (res) => {
+            try {
+                const r = JSON.parse(res);
+                statusEl.innerText = r.ok ? `Proyecto: "${r.project}" — listo.`
+                    : 'Premiere: ' + r.error + ' (abre un proyecto)';
+            } catch (e) { statusEl.innerText = 'JSX no cargado. Reinicia Premiere. ' + res; }
+        });
+    </script>
+</body>
+</html>

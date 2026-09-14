@@ -1,0 +1,257 @@
+/* FolderSync Pro v2 - jsx/foldersync.jsx
+   FS_ping / FS_pickFolder / FS_listBins / FS_import / FS_sync
+   Importacion con destino REAL en bin: 1) bin.importFiles directo si la version lo
+   soporta; 2) fallback import+moveIntoBin CON VERIFICACION (si el item no acaba
+   dentro del bin, se reporta, nunca se finge exito). */
+
+function J(o) {
+    var t = typeof o, k, i;
+    if (o === null) return "null";
+    if (t === "number") return (isNaN(o) || !isFinite(o)) ? "0" : String(o);
+    if (t === "boolean") return String(o);
+    if (t === "string") return '"' + o.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+                                       .replace(/\n/g, "\\n").replace(/\r/g, "") + '"';
+    if (o instanceof Array) {
+        var a = [];
+        for (i = 0; i < o.length; i++) a.push(J(o[i]));
+        return "[" + a.join(",") + "]";
+    }
+    var p = [];
+    for (k in o) if (o.hasOwnProperty(k)) p.push('"' + k + '":' + J(o[k]));
+    return "{" + p.join(",") + "}";
+}
+
+function FS_ping() {
+    try {
+        var p = app.project ? app.project.name : null;
+        if (!p) return J({ ok: false, error: "No hay proyecto abierto" });
+        return J({ ok: true, project: p, root: app.project.rootItem.name });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+function FS_pickFolder() {
+    try {
+        var f = Folder.selectDialog("Elige la carpeta a vigilar");
+        if (!f) return J({ ok: false, canceled: true });
+        return J({ ok: true, path: f.fsName, name: f.name });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+function isBin(item) {
+    try { return item.type === ProjectItemType.BIN; } catch (e) { return false; }
+}
+
+function findChildBin(bin, name, createIfMissing) {
+    var n = bin.children.numItems;
+    for (var i = 0; i < n; i++) {
+        var c = bin.children[i];
+        if (isBin(c) && c.name.toLowerCase() === String(name).toLowerCase()) return c;
+    }
+    if (createIfMissing) {
+        try { return bin.createBin(name); } catch (e) { return null; }
+    }
+    return null;
+}
+
+function ensureBinPath(pathArr) {
+    var cur = app.project.rootItem;
+    for (var i = 0; i < pathArr.length; i++) {
+        if (!pathArr[i]) continue;
+        cur = findChildBin(cur, pathArr[i], true);
+        if (!cur) throw new Error("No se pudo crear el bin: " + pathArr[i]);
+    }
+    return cur;
+}
+
+// snapshot de todo el proyecto: mediaPath -> true
+function snapSet() {
+    var s = {};
+    (function walk(bin) {
+        var n = bin.children.numItems;
+        for (var i = 0; i < n; i++) {
+            var c = bin.children[i];
+            if (isBin(c)) { walk(c); continue; }
+            var mp = "";
+            try { mp = c.getMediaPath(); } catch (e) {}
+            if (mp) s[mp] = 1; else s["name:" + c.name] = 1;
+        }
+    })(app.project.rootItem);
+    return s;
+}
+
+function findItemByMediaPath(mp) {
+    var found = null;
+    (function walk(bin) {
+        if (found) return;
+        var n = bin.children.numItems;
+        for (var i = 0; i < n; i++) {
+            var c = bin.children[i];
+            if (isBin(c)) { walk(c); if (found) return; continue; }
+            var p = "";
+            try { p = c.getMediaPath(); } catch (e) {}
+            if (mp.indexOf("name:") === 0 ? ("name:" + c.name) === mp : p === mp) { found = c; return; }
+        }
+    })(app.project.rootItem);
+    return found;
+}
+
+// esta el item DENTRO de este bin (busqueda directa en sus hijos)
+function itemInBin(bin, item) {
+    var n = bin.children.numItems;
+    for (var i = 0; i < n; i++) {
+        var c = bin.children[i];
+        if (c.nodeId === item.nodeId) return true;
+    }
+    return false;
+}
+
+function FS_listBins() {
+    try {
+        var out = [];
+        (function walk(bin, pathArr) {
+            var n = bin.children.numItems;
+            for (var i = 0; i < n; i++) {
+                var c = bin.children[i];
+                if (isBin(c)) {
+                    var p = pathArr.concat([c.name]);
+                    out.push(p);
+                    walk(c, p);
+                }
+            }
+        })(app.project.rootItem, []);
+        return J({ ok: true, bins: out });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+/* payload: { ops: [ { files: ["/ruta/a.mp4", ...], binPath: ["Destino", "Sub"] } ] } */
+function FS_import(batchJson) {
+    var res = { ok: false, imported: 0, moved: 0, direct: 0, failed: [], errors: [] };
+    function err(m) { res.errors.push(String(m)); }
+    try {
+        if (!app.project) { err("No hay proyecto abierto"); return J(res); }
+        var batch = eval("(" + batchJson + ")");
+        if (!batch.ops || !batch.ops.length) { res.ok = true; return J(res); }
+
+        for (var i = 0; i < batch.ops.length; i++) {
+            var op = batch.ops[i];
+            if (!op.files || !op.files.length) continue;
+            try {
+                var bin = ensureBinPath(op.binPath || []);
+                var before = snapSet();
+
+                // TECNICA 1: importFiles directamente sobre el bin (2020+)
+                var directOK = false;
+                try {
+                    if (typeof bin.importFiles === "function") {
+                        bin.importFiles(op.files);
+                        directOK = true;
+                        res.direct++;
+                    }
+                } catch (eD) { directOK = false; }
+
+                // TECNICA 2 (fallback): importar a raiz y mover con verificacion
+                if (!directOK) {
+                    var okImp = app.project.importFiles(op.files);
+                    if (!okImp) err("importFiles devolvio false para " + op.files.length + " archivo(s)");
+                }
+
+                var after = snapSet();
+                var added = [];
+                for (var k in after) if (after.hasOwnProperty(k) && !before[k]) added.push(k);
+                res.imported += added.length;
+
+                for (var a = 0; a < added.length; a++) {
+                    if (directOK) { res.moved++; continue; } // ya estan dentro por construccion
+                    var it = findItemByMediaPath(added[a]);
+                    if (!it) { res.failed.push("no localizado: " + added[a]); continue; }
+                    var done = false;
+                    try {
+                        if (typeof it.moveIntoBin === "function") {
+                            var r = it.moveIntoBin(bin);
+                            if (r === 0 && itemInBin(bin, it)) done = true;
+                        }
+                    } catch (eM) {}
+                    if (!done) {
+                        // ultimo intento: mover al bin padre a mano via move()
+                        try {
+                            if (typeof it.move === "function") {
+                                var r2 = it.move(bin);
+                                if (r2 === 0 && itemInBin(bin, it)) done = true;
+                            }
+                        } catch (eM2) {}
+                    }
+                    if (done) res.moved++;
+                    else res.failed.push("quedo en la raíz: " + it.name);
+                }
+            } catch (eOp) { err("op " + i + ": " + eOp); }
+        }
+        res.ok = true;
+        return J(res);
+    } catch (e) {
+        res.errors.push("FATAL: " + e.toString());
+        return J(res);
+    }
+}
+
+/* ---- v2: FS_sync solo-anade con verificacion de colocacion ---- */
+function FS_sync(batchJson) {
+    var res = { ok: false, imported: 0, moved: 0, direct: 0, failed: [], errors: [] };
+    function err(m) { res.errors.push(String(m)); }
+    try {
+        if (!app.project) { err("No hay proyecto abierto"); return J(res); }
+        var batch = eval("(" + batchJson + ")");
+        var groups = batch.groups || [];
+        var have = snapSet();
+        for (var g = 0; g < groups.length; g++) {
+            var gr = groups[g];
+            if (!gr.files || !gr.files.length) continue;
+            var pend = [], i;
+            for (i = 0; i < gr.files.length; i++) if (!have[gr.files[i]]) pend.push(gr.files[i]);
+            if (!pend.length) continue;
+            try {
+                var bin = ensureBinPath(gr.binPath || []);
+                var before = snapSet();
+                var directOK = false;
+                try {
+                    if (typeof bin.importFiles === "function") {
+                        bin.importFiles(pend);
+                        directOK = true; res.direct++;
+                    }
+                } catch (eD2) { directOK = false; }
+                if (!directOK) app.project.importFiles(pend);
+                var after = snapSet();
+                var added = [];
+                for (var k in after) if (after.hasOwnProperty(k) && !before[k]) added.push(k);
+                res.imported += added.length;
+                for (var a = 0; a < added.length; a++) {
+                    if (directOK) { res.moved++; continue; }
+                    var it = findItemByMediaPath(added[a]);
+                    if (!it) { res.failed.push("no localizado: " + added[a]); continue; }
+                    var done = false;
+                    try {
+                        if (typeof it.moveIntoBin === "function") {
+                            var r = it.moveIntoBin(bin);
+                            if (r === 0 && itemInBin(bin, it)) done = true;
+                        }
+                    } catch (eM3) {}
+                    if (!done) {
+                        try {
+                            if (typeof it.move === "function") {
+                                var r2 = it.move(bin);
+                                if (r2 === 0 && itemInBin(bin, it)) done = true;
+                            }
+                        } catch (eM4) {}
+                    }
+                    if (done) res.moved++;
+                    else res.failed.push("quedo en la raíz: " + it.name);
+                }
+                for (i = 0; i < pend.length; i++) have[pend[i]] = 1;
+            } catch (eG) { err("grupo " + g + ": " + eG); }
+        }
+        res.ok = true;
+        return J(res);
+    } catch (e) {
+        res.errors.push("FATAL: " + e.toString());
+        return J(res);
+    }
+}

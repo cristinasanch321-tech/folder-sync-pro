@@ -1,0 +1,199 @@
+/* FolderSync Pro - jsx/foldersync.jsx
+   FS_ping / FS_pickFolder / FS_listBins / FS_import
+   Importa archivos y los coloca en el bin indicado (creandolo si no existe). */
+
+function J(o) {
+    var t = typeof o, k, i;
+    if (o === null) return "null";
+    if (t === "number") return (isNaN(o) || !isFinite(o)) ? "0" : String(o);
+    if (t === "boolean") return String(o);
+    if (t === "string") return '"' + o.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+                                       .replace(/\n/g, "\\n").replace(/\r/g, "") + '"';
+    if (o instanceof Array) {
+        var a = [];
+        for (i = 0; i < o.length; i++) a.push(J(o[i]));
+        return "[" + a.join(",") + "]";
+    }
+    var p = [];
+    for (k in o) if (o.hasOwnProperty(k)) p.push('"' + k + '":' + J(o[k]));
+    return "{" + p.join(",") + "}";
+}
+
+function FS_ping() {
+    try {
+        var p = app.project ? app.project.name : null;
+        if (!p) return J({ ok: false, error: "No hay proyecto abierto" });
+        return J({ ok: true, project: p, root: app.project.rootItem.name });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+function FS_pickFolder() {
+    try {
+        var f = Folder.selectDialog("Elige la carpeta a vigilar");
+        if (!f) return J({ ok: false, canceled: true });
+        return J({ ok: true, path: f.fsName, name: f.name });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+function isBin(item) {
+    try { return item.type === ProjectItemType.BIN; } catch (e) { return false; }
+}
+
+// busca un bin hijo por nombre (sin distinguir mayusculas); opcionalmente lo crea
+function findChildBin(bin, name, createIfMissing) {
+    var n = bin.children.numItems;
+    for (var i = 0; i < n; i++) {
+        var c = bin.children[i];
+        if (isBin(c) && c.name.toLowerCase() === String(name).toLowerCase()) return c;
+    }
+    if (createIfMissing) {
+        try { return bin.createBin(name); } catch (e) { return null; }
+    }
+    return null;
+}
+
+function ensureBinPath(pathArr) {
+    var cur = app.project.rootItem;
+    for (var i = 0; i < pathArr.length; i++) {
+        if (!pathArr[i]) continue;
+        cur = findChildBin(cur, pathArr[i], true);
+        if (!cur) throw new Error("No se pudo crear el bin: " + pathArr[i]);
+    }
+    return cur;
+}
+
+function snapSet() {
+    var s = {};
+    (function walk(bin) {
+        var n = bin.children.numItems;
+        for (var i = 0; i < n; i++) {
+            var c = bin.children[i];
+            if (isBin(c)) { walk(c); continue; }
+            var mp = "";
+            try { mp = c.getMediaPath(); } catch (e) {}
+            if (mp) s[mp] = 1; else s["name:" + c.name] = 1;
+        }
+    })(app.project.rootItem);
+    return s;
+}
+
+function snapSetHas(mp) {
+    var s = snapSet();
+    return !!s[mp];
+}
+
+function findItemByMediaPath(mp) {
+    var found = null;
+    (function walk(bin) {
+        if (found) return;
+        var n = bin.children.numItems;
+        for (var i = 0; i < n; i++) {
+            var c = bin.children[i];
+            if (isBin(c)) { walk(c); if (found) return; continue; }
+            var p = "";
+            try { p = c.getMediaPath(); } catch (e) {}
+            if (mp.indexOf("name:") === 0 ? ("name:" + c.name) === mp : p === mp) { found = c; return; }
+        }
+    })(app.project.rootItem);
+    return found;
+}
+
+function FS_listBins() {
+    try {
+        var out = [];
+        (function walk(bin, pathArr) {
+            var n = bin.children.numItems;
+            for (var i = 0; i < n; i++) {
+                var c = bin.children[i];
+                if (isBin(c)) {
+                    var p = pathArr.concat([c.name]);
+                    out.push(p);
+                    walk(c, p);
+                }
+            }
+        })(app.project.rootItem, []);
+        return J({ ok: true, bins: out });
+    } catch (e) { return J({ ok: false, error: String(e) }); }
+}
+
+/* payload: { ops: [ { files: ["/ruta/a.mp4", ...], binPath: ["Destino", "Sub"] } ] } */
+function FS_import(batchJson) {
+    var res = { ok: false, imported: 0, moved: 0, errors: [] };
+    try {
+        if (!app.project) { res.errors.push("No hay proyecto abierto"); return J(res); }
+        var batch = eval("(" + batchJson + ")");
+        if (!batch.ops || !batch.ops.length) { res.ok = true; return J(res); }
+
+        for (var i = 0; i < batch.ops.length; i++) {
+            var op = batch.ops[i];
+            if (!op.files || !op.files.length) continue;
+            try {
+                var bin = ensureBinPath(op.binPath || []);
+                var before = snapSet();
+                var okImp = app.project.importFiles(op.files);
+                if (!okImp) res.errors.push("importFiles devolvio false para " + op.files.length + " archivo(s)");
+                var after = snapSet();
+                var added = [];
+                for (var k in after) if (after.hasOwnProperty(k) && !before[k]) added.push(k);
+                for (var a = 0; a < added.length; a++) {
+                    res.imported++;
+                    try {
+                        var it = findItemByMediaPath(added[a]);
+                        if (it && typeof it.moveIntoBin === "function") {
+                            var r = it.moveIntoBin(bin);
+                            if (r === 0) res.moved++;
+                        }
+                    } catch (eM) { res.errors.push("mover: " + eM); }
+                }
+            } catch (eOp) { res.errors.push("op " + i + ": " + eOp); }
+        }
+        res.ok = true;
+        return J(res);
+    } catch (e) {
+        res.errors.push("FATAL: " + e.toString());
+        return J(res);
+    }
+}
+
+/* ---- v3: RESYNC solo-anade. NUNCA borra nada del proyecto. ---- */
+function FS_sync(batchJson) {
+    var res = { ok: false, imported: 0, moved: 0, errors: [] };
+    function err(m) { res.errors.push(String(m)); }
+    try {
+        if (!app.project) { err("No hay proyecto abierto"); return J(res); }
+        var batch = eval("(" + batchJson + ")");
+        var groups = batch.groups || [];
+        var have = snapSet();
+        for (var g = 0; g < groups.length; g++) {
+            var gr = groups[g];
+            if (!gr.files || !gr.files.length) continue;
+            var pend = [], i;
+            for (i = 0; i < gr.files.length; i++) if (!have[gr.files[i]]) pend.push(gr.files[i]);
+            if (!pend.length) continue;
+            try {
+                var bin = ensureBinPath(gr.binPath || []);
+                var before = snapSet();
+                var okImp = app.project.importFiles(pend);
+                if (!okImp) err("importFiles devolvio false: " + pend.length + " archivo(s)");
+                var after = snapSet();
+                for (var k in after) {
+                    if (after.hasOwnProperty(k) && !before[k]) {
+                        res.imported++;
+                        try {
+                            var it = findItemByMediaPath(k);
+                            if (it && typeof it.moveIntoBin === "function") {
+                                if (it.moveIntoBin(bin) === 0) res.moved++;
+                            }
+                        } catch (eM) { err("mover: " + eM); }
+                    }
+                }
+                for (i = 0; i < pend.length; i++) have[pend[i]] = 1;
+            } catch (eG) { err("grupo " + g + ": " + eG); }
+        }
+        res.ok = true;
+        return J(res);
+    } catch (e) {
+        res.errors.push("FATAL: " + e.toString());
+        return J(res);
+    }
+}
