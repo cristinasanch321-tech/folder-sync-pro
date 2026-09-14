@@ -51,7 +51,7 @@
 </head>
 <body>
     <h3>FolderSync Pro</h3>
-    <div class="sub">Importa automáticamente tus carpetas de medios a Premiere Pro.</div>
+    <div class="sub">Importa automáticamente tus carpetas de medios a Premiere Pro.<br>🔒 NUNCA borra nada: ni en Finder ni en el proyecto (solo añade y organiza).</div>
 
     <div class="card" id="foldersCard">
         <div id="folders"></div>
@@ -318,7 +318,7 @@
         }
 
         document.getElementById('btnImport').addEventListener('click', () => {
-            const files = scanAll().filter(f => !importedMap[f.path]);
+            const files = scanAll();  // TODOS: Premiere decide (en su bin=ignora, suelto=reubica, nuevo=importa)
             doImport(files, false);
         });
         document.getElementById('btnRefresh').addEventListener('click', () => {
