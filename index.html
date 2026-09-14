@@ -96,7 +96,7 @@
             'wav','aif','aiff','mp3','m4a','aac','flac','ogg','wma','ac3',
             'png','jpg','jpeg','tif','tiff','gif','psd','ai','bmp','tga','dpx','heic','webp',
             'r3d','braw','prproj','v1','drp'];
-        const POLL_MS = 4000;
+        const POLL_MS = 5000;
 
         let ALL_BINS = [];
         let folders = [];        // {id, name, path, sub}
@@ -236,7 +236,9 @@
                     const full = path.join(dir, e.name);
                     if (e.isDirectory()) { if (folder.sub) walk(full, rel ? rel + '/' + e.name : e.name); continue; }
                     const ext = e.name.split('.').pop().toLowerCase();
-                    if (MEDIA_EXT.includes(ext)) out.push({ path: full, name: e.name, rel: rel || '' });
+                    let mtimeMs = 0;
+                    try { mtimeMs = fs.statSync(full).mtimeMs; } catch (eSt) {}
+                    if (MEDIA_EXT.includes(ext)) out.push({ path: full, name: e.name, rel: rel || '', mtimeMs: mtimeMs });
                 }
             };
             walk(folder.path, '');
@@ -362,9 +364,16 @@
         });
 
         // ---------- vigilancia ----------
+        // Vigilancia eficiente: escanea siempre que haya carpetas, pero SOLO
+        // toca la UI si algo cambio. Con auto-import apagado, coste casi cero.
+        let lastSignature = '';
         setInterval(() => {
-            if (importing || !folders.length) { scanAndRender(true); return; }
-            const pend = scanAll().filter(f => !importedMap[f.path]);
+            if (importing || !folders.length) return;   // silencio total
+            const all = scanAll();
+            const sig = all.map(f => f.path + ':' + f.mtimeMs).sort().join('|');
+            if (sig === lastSignature) return;           // nada cambio: ni UI ni Premiere
+            lastSignature = sig;
+            const pend = all.filter(f => !importedMap[f.path]);
             if (pend.length && document.getElementById('autoImport').checked) doImport(pend, true);
             else scanAndRender(true);
         }, POLL_MS);
