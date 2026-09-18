@@ -133,7 +133,7 @@
         function switchProject(name) {
             CURRENT_PROJECT = name;
             loadData();
-            renderFolders();
+            renderFolders(true);
             refreshBins();
             scanAndRender(true);
             document.getElementById('projTitle').textContent = 'Proyecto: ' + name;
@@ -141,7 +141,12 @@
         }
 
         function updateUI() {}
-        function renderFolders() {
+        let lastFoldersSig = '';
+        function renderFolders(force) {
+            // no re-render si la lista es identica: evita cerrar desplegables abiertos
+            const sig = folders.map(f => f.id + f.sub + (f.binPath || '')).join('|');
+            if (!force && sig === lastFoldersSig) return;
+            lastFoldersSig = sig;
             const el = document.getElementById('folders');
             el.innerHTML = '';
             folders.forEach((f, i) => {
@@ -158,11 +163,11 @@
             });
             el.querySelectorAll('.switch').forEach(sw => sw.addEventListener('click', () => {
                 const f = folders.find(x => x.id === sw.dataset.id);
-                f.sub = !f.sub; saveData(); renderFolders(); scanAndRender(true);
+                f.sub = !f.sub; saveData(); renderFolders(true); scanAndRender(true);
             }));
             el.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => {
                 folders = folders.filter(x => x.id !== b.dataset.id);
-                saveData(); renderFolders(); scanAndRender(true);
+                saveData(); renderFolders(true); scanAndRender(true);
             }));
             el.querySelectorAll('.binsel').forEach(sel => {
                 const f = folders.find(x => x.id === sel.dataset.id);
@@ -175,6 +180,25 @@
                     sel.appendChild(o);
                 });
                 if (f && f.binPath) sel.value = f.binPath;
+                sel.addEventListener('mousedown', () => {
+                    // recarga bins al vuelo para que nunca salga vacio ni obsoleto
+                    csInterface.evalScript('FS_listBins()', (res) => {
+                        try {
+                            const r = JSON.parse(res);
+                            if (r.ok) {
+                                ALL_BINS = r.bins;
+                                const cur = sel.value;
+                                sel.innerHTML = '<option value="">— vincula un bin —</option>';
+                                ALL_BINS.forEach(b => {
+                                    const o = document.createElement('option');
+                                    o.value = b.join('|'); o.textContent = '→ ' + b.join(' / ');
+                                    sel.appendChild(o);
+                                });
+                                sel.value = cur;
+                            }
+                        } catch (e) {}
+                    });
+                });
                 sel.addEventListener('change', () => { f.binPath = sel.value || null; saveData(); });
             });
         }
@@ -184,7 +208,7 @@
             if (folders.some(f => f.path === p)) { statusEl.innerText = 'Esa carpeta ya está vigilada.'; return; }
             folders.push({ id: 'f' + Date.now() + Math.floor(Math.random()*999),
                            name: name || p.split('/').pop(), path: p, sub: false, binPath: null });
-            saveData(); renderFolders(); scanAndRender(true);
+            saveData(); renderFolders(true); scanAndRender(true);
         }
         document.getElementById('btnAdd').addEventListener('click', () => {
             csInterface.evalScript('FS_pickFolder()', (res) => {
