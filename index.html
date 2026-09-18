@@ -18,7 +18,14 @@
     .switch.on { background: #34c759; }
     .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
     .switch.on::after { left: 18px; }
-    .binsel { width: 170px; background:#101714; color:#fff; border:1px solid #3a4a42; border-radius:4px; padding:2px; font-size:10px; flex-shrink:0; }
+    .binsel { width: 170px; background:#101714; color:#fff; border:1px solid #3a4a42; border-radius:4px; padding:3px 4px; font-size:10px; flex-shrink:0; cursor:pointer; text-align:left; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .binsel:hover { border-color:#34c759; }
+    .bindd { position:fixed; z-index:999; background:#26272e; border:1px solid #444; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.6); max-height:220px; overflow-y:auto; min-width:180px; display:none; }
+    .bindd.open { display:block; }
+    .bindd .bsearch { width:calc(100% - 12px); margin:6px; background:#101714; color:#fff; border:1px solid #444; border-radius:4px; padding:4px; font-size:10px; box-sizing:border-box; }
+    .bindd .bopt { padding:6px 10px; font-size:10px; color:#ddd; cursor:pointer; white-space:nowrap; }
+    .bindd .bopt:hover { background:#34c759; color:#fff; }
+    .bindd .bopt.none { color:#888; font-style:italic; }
     .del { background: none; border: none; color: #e05252; font-size: 14px; cursor: pointer; padding: 2px 6px; }
     .addrow { display: flex; align-items: center; gap: 8px; padding: 8px; color: #6ab04c; cursor: pointer; font-weight: bold; }
     .addrow:hover { background: #2a2d32; border-radius: 6px; }
@@ -68,6 +75,7 @@
         <div id="files"></div>
     </div>
 
+    <div class="bindd" id="binDD"></div>
     <div id="status">Comprobando Premiere...</div>
 
     <script src="./js/CSInterface.js"></script>
@@ -157,7 +165,7 @@
                     <span class="fpath">${escapeHtml(f.path)}</span>
                     <span class="sublbl">Sub</span>
                     <div class="switch ${f.sub ? 'on' : ''}" data-id="${f.id}" title="Subcarpetas: ON=_bins anidados / OFF=solo primer nivel"></div>
-                    <select class="binsel" data-id="${f.id}" title="Bin de destino en Premiere"></select>
+                    <button class="binsel" data-id="${f.id}" title="Bin de destino en Premiere">${f.binPath ? escapeHtml(f.binPath.split('|').join(' / ')) : '— vincula un bin —'}</button>
                     <button class="del" data-id="${f.id}">－</button>`;
                 el.appendChild(row);
             });
@@ -169,39 +177,54 @@
                 folders = folders.filter(x => x.id !== b.dataset.id);
                 saveData(); renderFolders(true); scanAndRender(true);
             }));
-            el.querySelectorAll('.binsel').forEach(sel => {
-                const f = folders.find(x => x.id === sel.dataset.id);
-                const o0 = document.createElement('option');
-                o0.value = ''; o0.textContent = '— vincula un bin —';
-                sel.appendChild(o0);
-                ALL_BINS.forEach(b => {
-                    const o = document.createElement('option');
-                    o.value = b.join('|'); o.textContent = '→ ' + b.join(' / ');
-                    sel.appendChild(o);
+            el.querySelectorAll('.binsel').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openBinDD(btn);
                 });
-                if (f && f.binPath) sel.value = f.binPath;
-                sel.addEventListener('mousedown', () => {
-                    // recarga bins al vuelo para que nunca salga vacio ni obsoleto
-                    csInterface.evalScript('FS_listBins()', (res) => {
-                        try {
-                            const r = JSON.parse(res);
-                            if (r.ok) {
-                                ALL_BINS = r.bins;
-                                const cur = sel.value;
-                                sel.innerHTML = '<option value="">— vincula un bin —</option>';
-                                ALL_BINS.forEach(b => {
-                                    const o = document.createElement('option');
-                                    o.value = b.join('|'); o.textContent = '→ ' + b.join(' / ');
-                                    sel.appendChild(o);
-                                });
-                                sel.value = cur;
-                            }
-                        } catch (e) {}
-                    });
-                });
-                sel.addEventListener('change', () => { f.binPath = sel.value || null; saveData(); });
             });
         }
+
+        let ddFor = null;
+        function openBinDD(btn) {
+            const dd = document.getElementById('binDD');
+            const f = folders.find(x => x.id === btn.dataset.id);
+            if (ddFor === f.id && dd.classList.contains('open')) { dd.classList.remove('open'); ddFor = null; return; }
+            ddFor = f.id;
+            // recargar bins frescos SIEMPRE al abrir
+            csInterface.evalScript('FS_listBins()', (res) => {
+                let bins = [];
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) { bins = r.bins; ALL_BINS = r.bins; }
+                } catch (e) {}
+                dd.innerHTML = '<input class="bsearch" id="binSearch" placeholder="buscar...">' +
+                    '<div class="bopt none" data-v="">— sin vincular —</div>' +
+                    bins.map(b => '<div class="bopt" data-v="' + escapeHtml(b.join('|')) + '">' + escapeHtml(b.join(' / ')) + '</div>').join('');
+                const rect = btn.getBoundingClientRect();
+                dd.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+                dd.style.top = (rect.bottom + 2) + 'px';
+                dd.classList.add('open');
+                const search = document.getElementById('binSearch');
+                search.addEventListener('input', () => {
+                    const q = search.value.toLowerCase();
+                    dd.querySelectorAll('.bopt').forEach(o => {
+                        o.style.display = o.textContent.toLowerCase().includes(q) ? '' : 'none';
+                    });
+                });
+                search.focus();
+                dd.querySelectorAll('.bopt').forEach(o => o.addEventListener('click', () => {
+                    f.binPath = o.dataset.v || null;
+                    saveData();
+                    btn.textContent = f.binPath ? f.binPath.split('|').join(' / ') : '— vincula un bin —';
+                    dd.classList.remove('open'); ddFor = null;
+                }));
+            });
+        }
+        document.addEventListener('click', (e) => {
+            const dd = document.getElementById('binDD');
+            if (dd.classList.contains('open') && !dd.contains(e.target)) { dd.classList.remove('open'); ddFor = null; }
+        });
         function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
         function addFolder(p, name) {

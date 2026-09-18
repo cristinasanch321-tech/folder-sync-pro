@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FolderSync Pro</title>
+<style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #161719; color: #eee; padding: 14px; margin: 0; font-size: 11px; }
+    h3 { text-align: center; font-size: 16px; margin: 0 0 4px; }
+    .sub { text-align: center; color: #9aa; font-size: 10px; margin-bottom: 12px; }
+    .card { background: #232529; border: 1px solid #333; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+    .frow { display: flex; align-items: center; gap: 6px; padding: 8px 4px; border-bottom: 1px solid #2c2e33; flex-wrap: wrap; }
+    .frow:last-child { border-bottom: none; }
+    .fnum { color: #777; width: 14px; }
+    .fname { font-weight: bold; flex-shrink: 0; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fpath { color: #888; flex: 1; min-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+    .sublbl { color: #9aa; font-size: 10px; }
+    .switch { position: relative; width: 34px; height: 18px; background: #444; border-radius: 9px; cursor: pointer; transition: background .15s; flex-shrink: 0; }
+    .switch.on { background: #34c759; }
+    .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+    .switch.on::after { left: 18px; }
+    .binsel { width: 170px; background:#101714; color:#fff; border:1px solid #3a4a42; border-radius:4px; padding:2px; font-size:10px; flex-shrink:0; }
+    .del { background: none; border: none; color: #e05252; font-size: 14px; cursor: pointer; padding: 2px 6px; }
+    .addrow { display: flex; align-items: center; gap: 8px; padding: 8px; color: #6ab04c; cursor: pointer; font-weight: bold; }
+    .addrow:hover { background: #2a2d32; border-radius: 6px; }
+    .chk { display: flex; align-items: center; gap: 6px; color: #ccc; margin: 4px 0; }
+    .chk input { width: auto; }
+    .btns { display: flex; gap: 8px; margin-top: 8px; }
+    button { padding: 9px 0; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; color: #fff; width: 100%; }
+    #btnImport { background: #34c759; flex: 1; }
+    #btnImport:hover { background: #2ca94e; }
+    #btnResync { background: #2e86de; flex: 1; }
+    #btnResync:hover { background: #2469ad; }
+    #btnRefresh { background: #6a3cb5; flex: 1; }
+    #btnRefresh:hover { background: #58309c; }
+    #drop { border: 2px dashed #555; border-radius: 8px; padding: 10px; text-align: center; color: #888; margin-top: 6px; font-size: 10px; }
+    #drop.over { border-color: #34c759; color: #34c759; }
+    #files { max-height: 220px; overflow-y: auto; }
+    .file { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-bottom: 1px solid #2c2e33; }
+    .sdot { width: 8px; height: 8px; border-radius: 50%; background: #f5a623; flex-shrink: 0; }
+    .sdot.yes { background: #34c759; }
+    .flek { margin-left: auto; color: #888; font-size: 10px; }
+    #status { margin-top: 8px; font-size: 10px; color: #9aa; white-space: pre-wrap; word-break: break-word; max-height: 110px; overflow-y: auto; }
+    .count { color: #888; font-size: 10px; margin: 6px 0 2px; }
+    .ptitle { color: #6ab04c; font-size: 10px; text-align: center; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+    <h3>FolderSync Pro</h3>
+    <div class="sub">🔒 NUNCA borra nada: ni en Finder ni en el proyecto (solo añade y organiza).<br>Cada carpeta se importa SOLO en el bin que le vincules.</div>
+
+    <div class="card">
+        <div class="ptitle" id="projTitle">Proyecto: detectando...</div>
+        <div id="folders"></div>
+        <div class="addrow" id="btnAdd">＋ Add additional folders</div>
+        <div id="drop">…o arrastra carpetas aquí</div>
+        <div class="chk" style="margin-top:8px;"><input type="checkbox" id="autoImport"> Auto-import: importar nuevos archivos al detectarlos</div>
+    </div>
+
+    <div class="btns">
+        <button id="btnImport">Import</button>
+        <button id="btnResync">⟳ Resync</button>
+        <button id="btnRefresh">🔄 Bins</button>
+    </div>
+
+    <div class="card">
+        <label>Files in Folders</label>
+        <div class="count" id="fileCount">0 archivos</div>
+        <div id="files"></div>
+    </div>
+
+    <div id="status">Comprobando Premiere...</div>
+
+    <script src="./js/CSInterface.js"></script>
+    <script>
+        const csInterface = new CSInterface();
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        const statusEl = document.getElementById('status');
+
+        const MEDIA_EXT = ['mp4','mov','mxf','avi','m4v','mpg','mpeg','mts','m2ts','m2t','wmv',
+            'wav','aif','aiff','mp3','m4a','aac','flac','ogg','wma','ac3',
+            'png','jpg','jpeg','tif','tiff','gif','psd','ai','bmp','tga','dpx','heic','webp',
+            'r3d','braw','v1','drp'];
+        const POLL_MS = 5000;
+
+        let CURRENT_PROJECT = null;   // nombre del proyecto de Premiere activo
+        let ALL_BINS = [];
+        let folders = [], importedMap = {}, importing = false;
+        let lastSignature = '';
+
+        function extDir() {
+            try { return csInterface.getSystemPath(SystemPath.EXTENSION); }
+            catch (e) { return path.join(os.homedir(), 'Library/Application Support/Adobe/CEP/extensions/folder-sync-pro'); }
+        }
+        const dataFile = path.join(extDir(), 'fs_data.json');
+
+        // ---- almacenamiento POR PROYECTO ----
+        function readAllData() {
+            try {
+                const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+                if (d && d.projects) return d;
+                if (d && d.folders) return { projects: { '(migrado)': { folders: d.folders, importedMap: d.importedMap || {}, autoImport: !!d.autoImport } } };
+            } catch (e) {}
+            return { projects: {} };
+        }
+        function loadData() {
+            const all = readAllData();
+            const key = CURRENT_PROJECT || '(sin proyecto)';
+            const p = all.projects[key] || {};
+            folders = p.folders || [];
+            importedMap = p.importedMap || {};
+            document.getElementById('autoImport').checked = !!p.autoImport;
+        }
+        function saveData() {
+            try {
+                const all = readAllData();
+                all.projects[CURRENT_PROJECT || '(sin proyecto)'] = {
+                    folders: folders, importedMap: importedMap,
+                    autoImport: document.getElementById('autoImport').checked
+                };
+                fs.writeFileSync(dataFile, JSON.stringify(all));
+            } catch (e) { statusEl.innerText = 'No pude guardar datos: ' + e.message; }
+        }
+
+        // ---- Premiere: proyecto activo (para detectar cambios) ----
+        function pingProject(cb) {
+            csInterface.evalScript('FS_ping()', (res) => {
+                let r = null; try { r = JSON.parse(res); } catch (e) {}
+                cb(r && r.ok ? r.project : null);
+            });
+        }
+        function switchProject(name) {
+            CURRENT_PROJECT = name;
+            loadData();
+            renderFolders(true);
+            refreshBins();
+            scanAndRender(true);
+            document.getElementById('projTitle').textContent = 'Proyecto: ' + name;
+            statusEl.innerText = 'Proyecto "' + name + '": ajustes de este proyecto cargados.';
+        }
+
+        function updateUI() {}
+        let lastFoldersSig = '';
+        function renderFolders(force) {
+            // no re-render si la lista es identica: evita cerrar desplegables abiertos
+            const sig = folders.map(f => f.id + f.sub + (f.binPath || '')).join('|');
+            if (!force && sig === lastFoldersSig) return;
+            lastFoldersSig = sig;
+            const el = document.getElementById('folders');
+            el.innerHTML = '';
+            folders.forEach((f, i) => {
+                const row = document.createElement('div');
+                row.className = 'frow';
+                row.innerHTML = `<span class="fnum">${i + 1}</span>
+                    <span class="fname">${escapeHtml(f.name)}</span>
+                    <span class="fpath">${escapeHtml(f.path)}</span>
+                    <span class="sublbl">Sub</span>
+                    <div class="switch ${f.sub ? 'on' : ''}" data-id="${f.id}" title="Subcarpetas: ON=_bins anidados / OFF=solo primer nivel"></div>
+                    <select class="binsel" data-id="${f.id}" title="Bin de destino en Premiere"></select>
+                    <button class="del" data-id="${f.id}">－</button>`;
+                el.appendChild(row);
+            });
+            el.querySelectorAll('.switch').forEach(sw => sw.addEventListener('click', () => {
+                const f = folders.find(x => x.id === sw.dataset.id);
+                f.sub = !f.sub; saveData(); renderFolders(true); scanAndRender(true);
+            }));
+            el.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => {
+                folders = folders.filter(x => x.id !== b.dataset.id);
+                saveData(); renderFolders(true); scanAndRender(true);
+            }));
+            el.querySelectorAll('.binsel').forEach(sel => {
+                const f = folders.find(x => x.id === sel.dataset.id);
+                const o0 = document.createElement('option');
+                o0.value = ''; o0.textContent = '— vincula un bin —';
+                sel.appendChild(o0);
+                ALL_BINS.forEach(b => {
+                    const o = document.createElement('option');
+                    o.value = b.join('|'); o.textContent = '→ ' + b.join(' / ');
+                    sel.appendChild(o);
+                });
+                if (f && f.binPath) sel.value = f.binPath;
+                sel.addEventListener('mousedown', () => {
+                    // recarga bins al vuelo para que nunca salga vacio ni obsoleto
+                    csInterface.evalScript('FS_listBins()', (res) => {
+                        try {
+                            const r = JSON.parse(res);
+                            if (r.ok) {
+                                ALL_BINS = r.bins;
+                                const cur = sel.value;
+                                sel.innerHTML = '<option value="">— vincula un bin —</option>';
+                                ALL_BINS.forEach(b => {
+                                    const o = document.createElement('option');
+                                    o.value = b.join('|'); o.textContent = '→ ' + b.join(' / ');
+                                    sel.appendChild(o);
+                                });
+                                sel.value = cur;
+                            }
+                        } catch (e) {}
+                    });
+                });
+                sel.addEventListener('change', () => { f.binPath = sel.value || null; saveData(); });
+            });
+        }
+        function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function addFolder(p, name) {
+            if (folders.some(f => f.path === p)) { statusEl.innerText = 'Esa carpeta ya está vigilada.'; return; }
+            folders.push({ id: 'f' + Date.now() + Math.floor(Math.random()*999),
+                           name: name || p.split('/').pop(), path: p, sub: false, binPath: null });
+            saveData(); renderFolders(true); scanAndRender(true);
+        }
+        document.getElementById('btnAdd').addEventListener('click', () => {
+            csInterface.evalScript('FS_pickFolder()', (res) => {
+                try { const r = JSON.parse(res); if (r.ok) addFolder(r.path, r.name); }
+                catch (e) { statusEl.innerText = 'Respuesta: ' + res; }
+            });
+        });
+        const drop = document.getElementById('drop');
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+        drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+        drop.addEventListener('drop', (e) => {
+            e.preventDefault(); drop.classList.remove('over');
+            for (const f of e.dataTransfer.files) {
+                try { if (fs.statSync(f.path).isDirectory()) addFolder(f.path, path.basename(f.path)); } catch (err) {}
+            }
+        });
+
+        function refreshBins(cb) {
+            csInterface.evalScript('FS_listBins()', (res) => {
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) ALL_BINS = r.bins;
+                } catch (e) {}
+                renderFolders();
+                if (cb) cb();
+            });
+        }
+        document.getElementById('btnRefresh').addEventListener('click', () => { refreshBins(); statusEl.innerText = 'Lista de bins actualizada.'; });
+
+        // ---- escaneo (solo primer nivel si Sub OFF) ----
+        function scanFolder(folder) {
+            const out = [];
+            const walk = (dir, rel) => {
+                let entries;
+                try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+                for (const e of entries) {
+                    if (e.name.startsWith('.')) continue;
+                    const full = path.join(dir, e.name);
+                    if (e.isDirectory()) { if (folder.sub) walk(full, rel ? rel + '/' + e.name : e.name); continue; }
+                    const ext = e.name.split('.').pop().toLowerCase();
+                    if (MEDIA_EXT.includes(ext)) {
+                        let mtimeMs = 0;
+                        try { mtimeMs = fs.statSync(full).mtimeMs; } catch (eSt) {}
+                        out.push({ path: full, name: e.name, rel: rel || '', mtimeMs: mtimeMs });
+                    }
+                }
+            };
+            walk(folder.path, '');
+            return out;
+        }
+        function scanAll() {
+            const all = [];
+            folders.forEach(f => scanFolder(f).forEach(x => all.push({ ...x, folderId: f.id, folderName: f.name })));
+            return all;
+        }
+        function scanAndRender(keep) {
+            const files = scanAll();
+            const box = document.getElementById('files');
+            box.innerHTML = '';
+            let nYes = 0;
+            files.sort((a, b) => a.folderName.localeCompare(b.folderName) || a.name.localeCompare(b.name));
+            files.forEach(x => {
+                const imp = !!importedMap[x.path];
+                if (imp) nYes++;
+                const d = document.createElement('div');
+                d.className = 'file';
+                d.innerHTML = `<div class="sdot ${imp ? 'yes' : ''}"></div>
+                    <span>${escapeHtml(x.name)}</span><span class="flek">${escapeHtml(x.folderName)}${x.rel ? '/' + escapeHtml(x.rel) : ''}</span>`;
+                box.appendChild(d);
+            });
+            document.getElementById('fileCount').textContent = `${files.length} archivos · ${nYes} importados`;
+            return files;
+        }
+
+        // ---- agrupar por bin vinculado; sin vincular => no se importa ----
+        function groupOps(files) {
+            const ops = {}, skipped = [];
+            for (const f of files) {
+                const fold = folders.find(x => x.id === f.folderId);
+                if (!fold || !fold.binPath) { skipped.push(f.name + ' (' + (fold ? fold.name : '?') + ' sin bin)'); continue; }
+                let binPath = fold.binPath.split('|');
+                if (fold.sub && f.rel) binPath = binPath.concat(f.rel.split('/'));
+                const key = binPath.join('|');
+                (ops[key] = ops[key] || { binPath: binPath, files: [] }).files.push(f.path);
+            }
+            return { ops: Object.values(ops), skipped: skipped };
+        }
+
+        function doImport(files, auto) {
+            if (!files.length) { if (!auto) statusEl.innerText = 'No hay archivos en las carpetas vigiladas.'; return; }
+            if (importing) return;
+            const g = groupOps(files);
+            if (!g.ops.length) {
+                statusEl.innerText = 'Nada que importar: vincula un bin a cada carpeta (desplegable de cada fila).';
+                if (g.skipped.length) statusEl.innerText += '\nSin bin: ' + g.skipped.slice(0, 5).join(', ');
+                return;
+            }
+            importing = true;
+            statusEl.innerText = `Importando ${files.length} archivo(s) a sus bins...`;
+            csInterface.evalScript('FS_import(' + JSON.stringify(JSON.stringify({ ops: g.ops })) + ')', (res) => {
+                importing = false;
+                try {
+                    const r = JSON.parse(res);
+                    if (r.ok) {
+                        const now = Date.now();
+                        files.forEach(f => importedMap[f.path] = now);
+                        saveData(); scanAndRender(true); refreshBins();
+                        let msg = `✔ Nuevos: ${r.imported} · reubicados de la raíz: ${r.relocated} · en bin: ${r.moved}`;
+                        if (g.skipped.length) msg += '\nSin bin (no importados): ' + g.skipped.slice(0, 5).join(', ');
+                        if (r.failed && r.failed.length) msg += '\n⚠️ NO llegaron al bin:\n' + r.failed.slice(0, 5).join('\n');
+                        if (r.errors && r.errors.length) msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
+                        statusEl.innerText = msg;
+                    } else statusEl.innerText = 'Error: ' + (r.errors || []).join(' | ');
+                } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
+            });
+        }
+
+        document.getElementById('btnImport').addEventListener('click', () => {
+            doImport(scanAll(), false);
+        });
+        document.getElementById('btnResync').addEventListener('click', () => {
+            refreshBins(() => doImport(scanAll(), false));
+        });
+
+        // ---- vigilancia + deteccion de cambio de proyecto ----
+        let tick = 0;
+        setInterval(() => {
+            tick++;
+            pingProject((name) => {
+                if (name && name !== CURRENT_PROJECT) { switchProject(name); return; }
+                if (importing || !folders.length) return;
+                const all = scanAll();
+                const sig = all.map(f => f.path + ':' + f.mtimeMs).sort().join('|');
+                if (sig === lastSignature) return;
+                lastSignature = sig;
+                const pend = all.filter(f => !importedMap[f.path]);
+                if (pend.length && document.getElementById('autoImport').checked) doImport(pend, true);
+                else scanAndRender(true);
+            });
+        }, POLL_MS);
+
+        // ---- arranque ----
+        pingProject((name) => {
+            if (!name) { statusEl.innerText = 'Abre un proyecto en Premiere.'; return; }
+            switchProject(name);
+            statusEl.innerText = `Proyecto "${name}" listo. Vincula cada carpeta a su bin y pulsa Import.`;
+        });
+    </script>
+</body>
+</html>
