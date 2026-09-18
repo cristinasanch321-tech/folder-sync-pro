@@ -239,3 +239,86 @@ function FS_checkOffline() {
         return J(res);
     } catch (e) { res.error = String(e); return J(res); }
 }
+
+/* ---- v4.7: TEST de metodos de movimiento ---- */
+function FS_testMove() {
+    var res = { ok: true, results: [] };
+    try {
+        if (!app.project) { res.results.push("No hay proyecto"); return J(res); }
+        // crear bin de prueba
+        var testBin = null;
+        try { testBin = app.project.rootItem.createBin("TEST_MOVE_" + Date.now()); } catch (e0) { testBin = null; }
+        if (!testBin) { res.results.push("createBin: FALLO"); return J(res); }
+        res.results.push("createBin: OK");
+        // crear un archivo de prueba WAV en /tmp
+        var testFile = new File(Folder.temp.fsName + "/autocut_test_move.wav");
+        // generar un WAV minimo valido (44 bytes header + 1s silencio 48k mono 16bit)
+        var sr = 48000, n = sr;
+        var f = new File(testFile.fsName);
+        f.encoding = "BINARY";
+        f.open("w");
+        var dataSize = n * 2;
+        var buf = [];
+        function w4(s) { for (var i = 0; i < 4; i++) buf.push(s.charCodeAt(i)); }
+        function w32(v) { buf.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255); }
+        function w16(v) { buf.push(v & 255, (v >> 8) & 255); }
+        w4("RIFF"); w32(36 + dataSize); w4("WAVE");
+        w4("fmt "); w32(16); w16(1); w16(1); w32(sr); w32(sr * 2); w16(2); w16(16);
+        w4("data"); w32(dataSize);
+        for (var i = 0; i < n; i++) w16(0);
+        var s = "";
+        for (var b = 0; b < buf.length; b += 32768) s += String.fromCharCode.apply(null, buf.slice(b, b + 32768));
+        f.write(s);
+        f.close();
+        // importarlo a la raiz
+        var before = {};
+        (function walk(bin) {
+            var nn = bin.children.numItems;
+            for (var i2 = 0; i2 < nn; i2++) {
+                var c2 = bin.children[i2];
+                if (c2.type === ProjectItemType.BIN) { walk(c2); continue; }
+                var mp2 = "";
+                try { mp2 = c2.getMediaPath(); } catch (e2) {}
+                if (mp2) before[mp2] = 1;
+            }
+        })(app.project.rootItem);
+        try { app.project.importFiles([testFile.fsName]); } catch (eI) {}
+        var found = null;
+        (function walk2(bin) {
+            if (found) return;
+            var nn = bin.children.numItems;
+            for (var i3 = 0; i3 < nn; i3++) {
+                var c3 = bin.children[i3];
+                if (c3.type === ProjectItemType.BIN) { walk2(c3); continue; }
+                var mp3 = "";
+                try { mp3 = c3.getMediaPath(); } catch (e3) {}
+                if (mp3 === testFile.fsName) { found = c3; return; }
+            }
+        })(app.project.rootItem);
+        if (!found) { res.results.push("import del test: FALLO (no aparecio)"); testBin.remove(); testFile.remove(); return J(res); }
+        res.results.push("import a raiz: OK");
+        // METODO 1: moveIntoBin
+        var m1 = "moveIntoBin: ";
+        try {
+            var r1 = found.moveIntoBin(testBin);
+            var in1 = false;
+            for (var q = 0; q < testBin.children.numItems; q++) if (testBin.children[q].nodeId === found.nodeId) in1 = true;
+            m1 += in1 ? "FUNCIONA" : "fallo (r=" + r1 + ", no esta dentro)";
+        } catch (e1) { m1 += "EXCEPCION " + e1; }
+        res.results.push(m1);
+        // METODO 2: move(bin)
+        var in2 = false;
+        try {
+            var r2 = found.move(testBin);
+            for (var q2 = 0; q2 < testBin.children.numItems; q2++) if (testBin.children[q2].nodeId === found.nodeId) in2 = true;
+            res.results.push("move(bin): " + (in2 ? "FUNCIONA" : "fallo (r=" + r2 + ")"));
+        } catch (e2) { res.results.push("move(bin): EXCEPCION " + e2); }
+        // METODO 3: move con path de bin? (algunas versiones aceptan itemId)
+        // limpiar: quitar el item de test y el bin de test y el archivo
+        try { found.remove(false, false); } catch (eR) {}
+        try { testBin.remove(); } catch (eR2) {}
+        try { testFile.remove(); } catch (eR3) {}
+        res.results.push("(test limpiado: sin dejar basura)");
+        return J(res);
+    } catch (e) { res.results.push("FATAL: " + e.toString()); return J(res); }
+}
