@@ -323,15 +323,25 @@
         function doImport(files, auto) {
             if (!files.length) { if (!auto) statusEl.innerText = 'No hay archivos en las carpetas vigiladas.'; return; }
             if (importing) return;
+            if (Date.now() < suspendedUntil) return;
+            // si hay media offline: NO importar (el usuario puede estar en Vincular medio)
+            csInterface.evalScript('FS_checkOffline()', (resOff) => {
+                let off = null; try { off = JSON.parse(resOff); } catch (e) {}
+                if (off && off.ok && off.offline > 0) {
+                    statusEl.innerText = '⏸ HAY ' + off.offline + ' MEDIA(S) OFFLINE en el proyecto:\n' +
+                        (off.names || []).join('\n') +
+                        '\n\nFolderSync NO importa nada hasta que se resuelva (por ejemplo desde el diálogo Vincular medio).\nVuelve a pulsar Import/Resync cuando todo esté en línea.';
+                    return;
+                }
             const g = groupOps(files);
             if (!g.ops.length) {
                 statusEl.innerText = 'Nada que importar: vincula un bin a cada carpeta (desplegable de cada fila).';
                 if (g.skipped.length) statusEl.innerText += '\nSin bin: ' + g.skipped.slice(0, 5).join(', ');
                 return;
             }
-            importing = true;
-            statusEl.innerText = `Importando ${files.length} archivo(s) a sus bins...`;
-            csInterface.evalScript('FS_import(' + JSON.stringify(JSON.stringify({ ops: g.ops })) + ')', (res) => {
+                importing = true;
+                statusEl.innerText = `Importando ${files.length} archivo(s) a sus bins...`;
+                csInterface.evalScript('FS_import(' + JSON.stringify(JSON.stringify({ ops: g.ops })) + ')', (res) => {
                 importing = false;
                 try {
                     const r = JSON.parse(res);
@@ -345,7 +355,8 @@
                         if (r.errors && r.errors.length) msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
                         statusEl.innerText = msg;
                     } else statusEl.innerText = 'Error: ' + (r.errors || []).join(' | ');
-                } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
+                    } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
+                });
             });
         }
 

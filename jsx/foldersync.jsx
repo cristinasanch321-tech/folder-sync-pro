@@ -205,3 +205,37 @@ function FS_sync(batchJson) {
         return J(res);
     } catch (e) { res.errors.push("FATAL: " + e.toString()); return J(res); }
 }
+
+/* ---- v4.3: deteccion de media offline (condicion del dialogo Vincular medio) ---- */
+function FS_checkOffline() {
+    var res = { ok: true, offline: 0, names: [] };
+    try {
+        if (!app.project) { res.ok = false; return J(res); }
+        (function walk(bin) {
+            var n = bin.children.numItems;
+            for (var i = 0; i < n; i++) {
+                var c = bin.children[i];
+                if (isBin(c)) { walk(c); continue; }
+                var off = false;
+                try { off = c.isMediaOffline(); } catch (e1) {}
+                if (!off) {
+                    try {
+                        var t = c.type;
+                        if (t !== ProjectItemType.BIN && typeof c.getMediaPath === "function") {
+                            var mp = c.getMediaPath();
+                            if (mp && mp.indexOf(".prproj") < 0) {
+                                var f = new File(mp);
+                                if (!f.exists) off = true;
+                            }
+                        }
+                    } catch (e2) {}
+                }
+                if (off) {
+                    res.offline++;
+                    if (res.names.length < 5) { try { res.names.push(c.name); } catch (e3) {} }
+                }
+            }
+        })(app.project.rootItem);
+        return J(res);
+    } catch (e) { res.error = String(e); return J(res); }
+}
