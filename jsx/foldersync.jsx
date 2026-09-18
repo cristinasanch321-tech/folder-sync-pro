@@ -131,46 +131,40 @@ function FS_listBins() {
     } catch (e) { return J({ ok: false, error: String(e) }); }
 }
 
-/* coloca UN archivo en UN bin. Nunca borra.
-   Rechazo de formato => anula (no marca, no reintenta) y avisa. */
+/* coloca UN archivo en UN bin. Nunca borra. v4.8: import individual + move inmediato */
 function placeFile(mp, bin, res, err) {
     var under = pathsUnder(bin);
-    if (under[mp]) { res.moved++; return; }            // ya esta dentro: nada que hacer
+    if (under[mp]) { res.moved++; return; }
     var it = findItemByMediaPath(mp);
     if (!it) {
-        // PASO 1: import con destino bin
         var ok = false;
         try { ok = app.project.importFiles([mp], true, bin, true); } catch (eI) { ok = false; }
         var under2 = pathsUnder(bin);
         if (under2[mp]) { res.imported++; res.moved++; return; }
-        // PASO 2: si no cayo en el bin, puede que haya ido a la raiz o que haya fallado
+        // fallback: import simple (via manual)
+        ok = false;
+        try { ok = app.project.importFiles([mp]); } catch (eI2) { ok = false; }
         it = findItemByMediaPath(mp);
         if (!it) {
-            // PASO 3: fallback = importacion simple (equivalente al import manual)
-            ok = false;
-            try { ok = app.project.importFiles([mp]); } catch (eI2) { ok = false; }
-            it = findItemByMediaPath(mp);
-            if (!it) {
-                res.rejected.push(mp);
-                err("RECHAZADO por Premiere (formato no admitido o archivo no legible): " + mp.split("/").pop());
-                return;   // anulado: no se marca como importado, no se reintenta
-            }
+            res.rejected.push(mp);
+            err("RECHAZADO por Premiere: " + mp.split("/").pop());
+            return;
         }
     }
     if (itemInBin(bin, it)) { res.imported++; res.moved++; return; }
     var done = false;
     try {
         if (typeof it.moveIntoBin === "function") {
-            var r = it.moveIntoBin(bin);
+            it.moveIntoBin(bin);
             if (itemInBin(bin, it)) done = true;
         }
     } catch (eM) {}
     if (!done) { try { if (it.move && it.move(bin) === 0 && itemInBin(bin, it)) done = true; } catch (eM2) {} }
     if (done) { res.relocated++; res.moved++; }
-    else res.failed.push("quedo fuera del bin: " + it.name);
+    else res.failed.push("raiz: " + it.name);
 }
 
-/* payload: { ops: [ { files: [...], binPath: [...] } ] } */
+/* payload: { ops: [ { files: [...], binPath: [...] } ] } — v4.8: uno a uno */
 function FS_import(batchJson) {
     var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [] };
     function err(m) { res.errors.push(String(m)); }
@@ -185,33 +179,9 @@ function FS_import(batchJson) {
                 var bin = ensureBinPath(op.binPath || []);
                 for (var f = 0; f < op.files.length; f++) {
                     try { placeFile(op.files[f], bin, res, err); }
-                    catch (eF) { err("archivo " + op.files[f] + ": " + eF); }
+                    catch (eF) { err("archivo: " + eF); }
                 }
             } catch (eOp) { err("op " + i + ": " + eOp); }
-        }
-        res.ok = true;
-        return J(res);
-    } catch (e) { res.errors.push("FATAL: " + e.toString()); return J(res); }
-}
-
-/* payload: { groups: [ { files: [...], binPath: [...] } ] } — solo anade, NUNCA borra */
-function FS_sync(batchJson) {
-    var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [] };
-    function err(m) { res.errors.push(String(m)); }
-    try {
-        if (!app.project) { err("No hay proyecto abierto"); return J(res); }
-        var batch = eval("(" + batchJson + ")");
-        var groups = batch.groups || [];
-        for (var g = 0; g < groups.length; g++) {
-            var gr = groups[g];
-            if (!gr.files || !gr.files.length) continue;
-            try {
-                var bin = ensureBinPath(gr.binPath || []);
-                for (var f = 0; f < gr.files.length; f++) {
-                    try { placeFile(gr.files[f], bin, res, err); }
-                    catch (eF) { err("archivo " + gr.files[f] + ": " + eF); }
-                }
-            } catch (eG) { err("grupo " + g + ": " + eG); }
         }
         res.ok = true;
         return J(res);
