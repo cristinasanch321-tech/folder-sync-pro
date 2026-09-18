@@ -218,18 +218,6 @@ function FS_checkOffline() {
                 if (isBin(c)) { walk(c); continue; }
                 var off = false;
                 try { off = c.isMediaOffline(); } catch (e1) {}
-                if (!off) {
-                    try {
-                        var t = c.type;
-                        if (t !== ProjectItemType.BIN && typeof c.getMediaPath === "function") {
-                            var mp = c.getMediaPath();
-                            if (mp && mp.indexOf(".prproj") < 0) {
-                                var f = new File(mp);
-                                if (!f.exists) off = true;
-                            }
-                        }
-                    } catch (e2) {}
-                }
                 if (off) {
                     res.offline++;
                     if (res.names.length < 5) { try { res.names.push(c.name); } catch (e3) {} }
