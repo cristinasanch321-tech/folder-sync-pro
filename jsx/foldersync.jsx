@@ -131,19 +131,31 @@ function FS_listBins() {
     } catch (e) { return J({ ok: false, error: String(e) }); }
 }
 
-/* trae/un coloca UN archivo en UN bin. Nunca borra. */
+/* coloca UN archivo en UN bin. Nunca borra.
+   Rechazo de formato => anula (no marca, no reintenta) y avisa. */
 function placeFile(mp, bin, res, err) {
     var under = pathsUnder(bin);
-    if (under[mp]) { res.moved++; return; }            // ya esta dentro
+    if (under[mp]) { res.moved++; return; }            // ya esta dentro: nada que hacer
     var it = findItemByMediaPath(mp);
-    if (!it) {                                          // no existe en el proyecto: importar AL bin
+    if (!it) {
+        // PASO 1: import con destino bin
         var ok = false;
         try { ok = app.project.importFiles([mp], true, bin, true); } catch (eI) { ok = false; }
-        if (!ok) { try { ok = app.project.importFiles([mp]); } catch (eI2) { ok = false; } }
         var under2 = pathsUnder(bin);
         if (under2[mp]) { res.imported++; res.moved++; return; }
+        // PASO 2: si no cayo en el bin, puede que haya ido a la raiz o que haya fallado
         it = findItemByMediaPath(mp);
-        if (!it) { res.failed.push("no importable: " + mp); return; }
+        if (!it) {
+            // PASO 3: fallback = importacion simple (equivalente al import manual)
+            ok = false;
+            try { ok = app.project.importFiles([mp]); } catch (eI2) { ok = false; }
+            it = findItemByMediaPath(mp);
+            if (!it) {
+                res.rejected.push(mp);
+                err("RECHAZADO por Premiere (formato no admitido o archivo no legible): " + mp.split("/").pop());
+                return;   // anulado: no se marca como importado, no se reintenta
+            }
+        }
     }
     if (itemInBin(bin, it)) { res.imported++; res.moved++; return; }
     var done = false;
@@ -160,7 +172,7 @@ function placeFile(mp, bin, res, err) {
 
 /* payload: { ops: [ { files: [...], binPath: [...] } ] } */
 function FS_import(batchJson) {
-    var res = { ok: false, imported: 0, moved: 0, relocated: 0, failed: [], errors: [] };
+    var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [] };
     function err(m) { res.errors.push(String(m)); }
     try {
         if (!app.project) { err("No hay proyecto abierto"); return J(res); }
@@ -184,7 +196,7 @@ function FS_import(batchJson) {
 
 /* payload: { groups: [ { files: [...], binPath: [...] } ] } — solo anade, NUNCA borra */
 function FS_sync(batchJson) {
-    var res = { ok: false, imported: 0, moved: 0, relocated: 0, failed: [], errors: [] };
+    var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [] };
     function err(m) { res.errors.push(String(m)); }
     try {
         if (!app.project) { err("No hay proyecto abierto"); return J(res); }

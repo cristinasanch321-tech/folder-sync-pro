@@ -343,6 +343,13 @@
                             saveData(); scanAndRender(true); refreshBins();
                             let msg = `✔ Nuevos: ${r.imported} · reubicados: ${r.relocated} · en bin: ${r.moved}`;
                             if (g.skipped.length) msg += '\nSin bin (no importados): ' + g.skipped.slice(0, 5).join(', ');
+                            if (r.rejected && r.rejected.length) {
+                                msg += '\n🚫 RECHAZADOS por Premiere (' + r.rejected.length + ') — NO marcados como importados:\n' +
+                                    r.rejected.slice(0, 5).map(x => x.split('/').pop()).join('\n');
+                                msg += '\n→ Importa ese archivo a mano (Probablemente formato no admitido por script); el resto sigue funcionando.';
+                                // quitar del registro los rechazados para reintentar en el futuro
+                                r.rejected.forEach(x => { delete importedMap[x]; });
+                            }
                             if (r.failed && r.failed.length) msg += '\n⚠️ NO llegaron al bin:\n' + r.failed.slice(0, 5).join('\n');
                             if (r.errors && r.errors.length) msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
                             statusEl.innerText = msg;
