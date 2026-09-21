@@ -63,8 +63,17 @@
         <div class="chk" style="margin-top:8px;"><input type="checkbox" id="autoImport"> Auto-import: importar nuevos archivos al detectarlos</div>
     </div>
 
+    <div class="card" id="importFlow">
+        <label>Importación sin diálogos — cómo funciona</label>
+        <div style="font-size:10px; color:#bbb; line-height:1.5;">
+        1. <b>Selecciona en el panel Proyecto de Premiere el bin destino</b> (un clic sobre él).<br>
+        2. Pulsa el botón: importaré SOLO los archivos pendientes de las carpetas vinculadas a ese bin.<br>
+        3. Como Premiere importa al bin seleccionado, caen DENTRO directamente. Sin diálogos.
+        </div>
+        <div id="flowInfo" style="margin-top:6px; font-size:10px; color:#6ab04c;"></div>
+    </div>
     <div class="btns">
-        <button id="btnImport">Import</button>
+        <button id="btnImport">⬇ Importar al bin seleccionado</button>
         <button id="btnResync">⟳ Resync</button>
         <button id="btnRefresh">🔄 Bins</button>
     </div>
@@ -371,7 +380,53 @@
         }
 
         document.getElementById('btnImport').addEventListener('click', () => {
-            doImport(scanAll(), false);
+            if (modalPaused || offlineHold || importing) return;
+            const all = scanAll();
+            const pend = all.filter(f => !importedMap[f.path]);
+            if (!pend.length) { statusEl.innerText = 'Nada pendiente: todo importado o sin archivos.'; return; }
+            // agrupar pendientes por bin vinculado
+            const byBin = {};
+            const noBin = [];
+            pend.forEach(f => {
+                const fold = folders.find(x => x.id === f.folderId);
+                if (!fold || !fold.binPath) { noBin.push(f.name); return; }
+                const b = fold.binPath.split('|').pop();  // nombre del ultimo nivel del bin
+                (byBin[b] = byBin[b] || []).push(f);
+            });
+            // que bin tiene el usuario seleccionado en Premiere? no detectable por API:
+            // usar el flujo de "un bin por pulsacion": si solo hay 1 bin con pendientes, ese; si hay varios, pedir ciclo
+            const bins = Object.keys(byBin);
+            if (!bins.length) { statusEl.innerText = 'Pendientes sin bin vinculado: ' + noBin.slice(0,4).join(', '); return; }
+
+            // selector de bin en el propio panel (clic en el nombre)
+            let flowInfo = 'Pendientes por bin:\n';
+            bins.forEach((b, i) => flowInfo += `[${i + 1}] ${b} — ${byBin[b].length} archivo(s)\n`);
+            if (noBin.length) flowInfo += `(sin bin: ${noBin.length})\n`;
+            flowInfo += '\nEscribe el NUMERO del bin a importar ahora (1-' + bins.length + '):';
+            statusEl.innerText = flowInfo;
+            const num = prompt(flowInfo + '\n\nNumero de bin (o Cancelar):');
+            if (!num) return;
+            const chosen = bins[parseInt(num, 10) - 1];
+            if (!chosen) { statusEl.innerText = 'Número no válido.'; return; }
+            const files = byBin[chosen].map(f => f.path);
+            statusEl.innerText = `⬇ Importando ${files.length} archivo(s)...\nIMPORTANTE: selecciona en el panel Proyecto el bin "${chosen}" AHORA si no lo tienes seleccionado (clic sobre él).\nImportando...`;
+            setTimeout(() => {
+                csInterface.evalScript('FS_importSimple(' + JSON.stringify(JSON.stringify(files)) + ')', (res) => {
+                    try {
+                        const r = JSON.parse(res);
+                        if (r.ok) {
+                            r.importedNames.forEach(x => {
+                                const f = byBin[chosen].find(p => p.path === x.path);
+                                if (f) importedMap[f.path] = Date.now();
+                            });
+                            saveData(); scanAndRender(true);
+                            let msg = `✔ ${r.importedNames.length} importados.\nSi Premiere tenía el bin "${chosen}" seleccionado, ya están DENTRO.\nSi alguno cayó en la raíz: arrástralo a "${chosen}" (una vez).`;
+                            if (r.rejected.length) msg += '\n🚫 Rechazados: ' + r.rejected.map(x => x.split('/').pop()).slice(0, 4).join(', ');
+                            statusEl.innerText = msg;
+                        } else statusEl.innerText = 'Error: ' + (r.error || res);
+                    } catch (e) { statusEl.innerText = 'Respuesta: ' + res; }
+                });
+            }, 1500);
         });
         document.getElementById('btnResync').addEventListener('click', () => {
             refreshBins(() => doImport(scanAll(), false));

@@ -292,3 +292,61 @@ function FS_testMove() {
         return J(res);
     } catch (e) { res.results.push("FATAL: " + e.toString()); return J(res); }
 }
+
+/* ---- v5: import al bin seleccionado en el panel Proyecto ---- */
+function FS_getSelectedBin() {
+    var res = { ok: false };
+    try {
+        if (!app.project) { res.error = "No hay proyecto"; return J(res); }
+        var sel = null;
+        try { sel = app.project.activeItem; } catch (e0) {}
+        // activeItem no existe en PPro; deteccion alternativa: buscar bin "seleccionado" no es posible.
+        // Por eso el flujo real: el usuario dice el bin por NOMBRE y nosotros lo localizamos.
+        res.ok = true;
+        return J(res);
+    } catch (e) { res.error = e.toString(); return J(res); }
+}
+
+/* importa archivos a raiz (via simple) y devuelve lista de nombres+mediaPath
+   para que el panel sepa exactamente que acaba de entrar (aunque caiga en raiz) */
+function FS_importSimple(paths) {
+    var res = { ok: false, importedNames: [], rejected: [] };
+    try {
+        if (!app.project) { res.error = "No hay proyecto"; return J(res); }
+        var before = {};
+        (function walk(bin) {
+            var n = bin.children.numItems;
+            for (var i = 0; i < n; i++) {
+                var c = bin.children[i];
+                if (c.type === ProjectItemType.BIN) { walk(c); continue; }
+                var mp = "";
+                try { mp = c.getMediaPath(); } catch (e) {}
+                if (mp) before[mp] = 1;
+            }
+        })(app.project.rootItem);
+        try { app.project.importFiles(paths); } catch (eI) {}
+        (function walk2(bin) {
+            var n = bin.children.numItems;
+            for (var i = 0; i < n; i++) {
+                var c = bin.children[i];
+                if (c.type === ProjectItemType.BIN) { walk2(c); continue; }
+                var mp = "";
+                try { mp = c.getMediaPath(); } catch (e2) {}
+                if (mp && !before[mp]) {
+                    var nm = mp.split("/").pop();
+                    res.importedNames.push({ name: nm, path: mp });
+                }
+            }
+        })(app.project.rootItem);
+        // rechazados = pedidos que no aparecieron
+        for (var k = 0; k < paths.length; k++) {
+            var appeared = false;
+            for (var j = 0; j < res.importedNames.length; j++) {
+                if (res.importedNames[j].path === paths[k]) { appeared = true; break; }
+            }
+            if (!appeared) res.rejected.push(paths[k]);
+        }
+        res.ok = true;
+        return J(res);
+    } catch (e) { res.error = e.toString(); return J(res); }
+}
