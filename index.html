@@ -75,7 +75,6 @@
         <div id="files"></div>
     </div>
 
-    <button id="btnTestMove" style="background:#555;margin-bottom:6px;">🧪 Test de movimiento (temporal)</button>
     <div class="bindd" id="binDD"></div>
     <div id="status">Comprobando Premiere...</div>
 
@@ -342,7 +341,7 @@
                             const now = Date.now();
                             files.forEach(f => importedMap[f.path] = now);
                             saveData(); scanAndRender(true); refreshBins();
-                            let msg = `✔ Nuevos: ${r.imported} · reubicados: ${r.relocated} · en bin: ${r.moved}`;
+                            let msg = `✔ Nuevos: ${r.imported} · en bin: ${r.moved}` + (r.subbin ? ' · (algunos en subbins "Importados <fecha>" dentro de su bin)' : '');
                             if (g.skipped.length) msg += '\nSin bin (no importados): ' + g.skipped.slice(0, 5).join(', ');
                             if (r.rejected && r.rejected.length) {
                                 msg += '\n🚫 RECHAZADOS por Premiere (' + r.rejected.length + ') — NO marcados como importados:\n' +
@@ -370,13 +369,7 @@
         let tick = 0;
         setInterval(() => {
             tick++;
-            document.getElementById('btnTestMove').addEventListener('click', () => {
-            csInterface.evalScript('FS_testMove()', (res) => {
-                statusEl.innerText = 'RESULTADO:\n' + res.replace(/","/g, '",\n').slice(0, 600);
-            });
-        });
-
-        pingProject((name) => {
+            pingProject((name) => {
                 if (name && name !== CURRENT_PROJECT) { switchProject(name); return; }
                 if (importing || !folders.length || offlineHold) return;
                 const all = scanAll();
