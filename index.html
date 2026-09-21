@@ -77,6 +77,7 @@
     <div class="btns">
         <button id="btnImport">⬇ Importar</button>
         <button id="btnRefresh">🔄 Bins</button>
+    <button id="btnDiag" style="background:#555;">🔍 Diagnóstico de lectura</button>
     </div>
 
     <div class="card">
@@ -399,7 +400,25 @@
         let tick = 0;
         setInterval(() => {
             tick++;
-            pingProject((name) => {
+            document.getElementById('btnDiag').addEventListener('click', () => {
+            const out = ['── DIAGNÓSTICO DE LECTURA ──',
+                'Proyecto activo: ' + (CURRENT_PROJECT || 'NINGUNO'),
+                'Carpetas vigiladas: ' + folders.length];
+            folders.forEach(f => {
+                out.push('• ' + f.path);
+                out.push('  Sub: ' + f.sub + ' | bin: ' + (f.binPath || 'SIN VINCULAR'));
+                try {
+                    const e = fs.readdirSync(f.path, { withFileTypes: true });
+                    out.push('  ✓ legible: ' + e.length + ' entradas');
+                    e.forEach(x => { if (x.isDirectory() && !x.name.startsWith('.')) out.push('    [dir] ' + x.name); });
+                } catch (err) {
+                    out.push('  ✗ ERROR: ' + err.message + ' ' + (err.code || ''));
+                }
+            });
+            statusEl.innerText = out.join('\n');
+        });
+
+        pingProject((name) => {
                 if (name && name !== CURRENT_PROJECT) { switchProject(name); return; }
                 if (importing || !folders.length || offlineHold) return;
                 const all = scanAll();
