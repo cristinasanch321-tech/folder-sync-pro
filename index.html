@@ -140,6 +140,13 @@
         }
         function switchProject(name) {
             CURRENT_PROJECT = name;
+            try {
+                const all = readAllData();
+                if (!all.projects[name] && all.projects['(migrado)']) {
+                    all.projects[name] = JSON.parse(JSON.stringify(all.projects['(migrado)']));
+                    fs.writeFileSync(dataFile, JSON.stringify(all));
+                }
+            } catch (e) {}
             loadData();
             renderFolders(true);
             refreshBins();
@@ -255,11 +262,15 @@
         }
         document.getElementById('btnRefresh').addEventListener('click', () => { refreshBins(); statusEl.innerText = 'Lista de bins actualizada.'; });
 
+        let scanErrors = [];
         function scanFolder(folder) {
             const out = [];
             const walk = (dir, rel) => {
                 let entries;
-                try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+                try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) {
+                    scanErrors.push((folder.name || folder.path) + ': ' + (e.code === 'ENOENT' ? 'NO EXISTE o volumen desmontado' : e.message));
+                    return;
+                }
                 for (const e of entries) {
                     if (e.name.startsWith('.')) continue;
                     const full = path.join(dir, e.name);
