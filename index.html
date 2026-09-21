@@ -23,7 +23,6 @@
     .binsel:hover { border-color:#34c759; }
     .bindd { position:fixed; z-index:999; background:#26272e; border:1px solid #444; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.6); max-height:220px; overflow-y:auto; min-width:180px; display:none; }
     .bindd.open { display:block; }
-    .bindd .bsearch { width:calc(100% - 12px); margin:6px; background:#101714; color:#fff; border:1px solid #444; border-radius:4px; padding:4px; font-size:10px; box-sizing:border-box; }
     .bindd .bopt { padding:6px 10px; font-size:10px; color:#ddd; cursor:pointer; white-space:nowrap; }
     .bindd .bopt:hover { background:#34c759; color:#fff; }
     .bindd .bopt.none { color:#888; font-style:italic; }
@@ -42,39 +41,41 @@
     #btnRefresh:hover { background: #58309c; }
     #drop { border: 2px dashed #555; border-radius: 8px; padding: 10px; text-align: center; color: #888; margin-top: 6px; font-size: 10px; }
     #drop.over { border-color: #34c759; color: #34c759; }
-    #files { max-height: 220px; overflow-y: auto; }
+    #files { max-height: 180px; overflow-y: auto; }
     .file { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-bottom: 1px solid #2c2e33; }
     .sdot { width: 8px; height: 8px; border-radius: 50%; background: #f5a623; flex-shrink: 0; }
     .sdot.yes { background: #34c759; }
     .flek { margin-left: auto; color: #888; font-size: 10px; }
-    #status { margin-top: 8px; font-size: 10px; color: #9aa; white-space: pre-wrap; word-break: break-word; max-height: 110px; overflow-y: auto; }
+    #status { margin-top: 8px; font-size: 10px; color: #9aa; white-space: pre-wrap; word-break: break-word; max-height: 130px; overflow-y: auto; }
     .count { color: #888; font-size: 10px; margin: 6px 0 2px; }
+    .flowinfo { font-size: 10px; color: #bbb; line-height: 1.5; }
+    .flowinfo b { color: #6ab04c; }
 </style>
 </head>
 <body>
     <h3>FolderSync Pro</h3>
-    <div class="sub">🔒 NUNCA borra nada: ni en Finder ni en el proyecto (solo añade y organiza).<br>Cada carpeta se importa SOLO en el bin que le vincules.</div>
+    <div class="sub">🔒 NUNCA borra nada (solo añade y organiza). Sin diálogos de error.</div>
 
     <div class="card">
         <div class="ptitle" id="projTitle">Proyecto: detectando...</div>
         <div id="folders"></div>
         <div class="addrow" id="btnAdd">＋ Add additional folders</div>
         <div id="drop">…o arrastra carpetas aquí</div>
-        <div class="chk" style="margin-top:8px;"><input type="checkbox" id="autoImport"> Auto-import: importar nuevos archivos al detectarlos</div>
+        <div class="chk" style="margin-top:8px;"><input type="checkbox" id="autoImport"> Auto-import al detectar nuevos</div>
     </div>
 
-    <div class="card" id="importFlow">
-        <label>Importación sin diálogos — cómo funciona</label>
-        <div style="font-size:10px; color:#bbb; line-height:1.5;">
-        1. <b>Selecciona en el panel Proyecto de Premiere el bin destino</b> (un clic sobre él).<br>
-        2. Pulsa el botón: importaré SOLO los archivos pendientes de las carpetas vinculadas a ese bin.<br>
-        3. Como Premiere importa al bin seleccionado, caen DENTRO directamente. Sin diálogos.
+    <div class="card">
+        <label>Importación — cómo funciona</label>
+        <div class="flowinfo">
+        1. En el panel <b>Proyecto de Premiere</b>, haz clic sobre el bin destino (queda seleccionado).<br>
+        2. Pulsa ⬇: importaré los pendientes de las carpetas vinculadas <b>a ese bin</b>.<br>
+        3. Como Premiere importa dentro del bin seleccionado, <b>caen dentro directamente</b>.
         </div>
         <div id="flowInfo" style="margin-top:6px; font-size:10px; color:#6ab04c;"></div>
     </div>
+
     <div class="btns">
-        <button id="btnImport">⬇ Importar al bin seleccionado</button>
-        <button id="btnResync">⟳ Resync</button>
+        <button id="btnImport">⬇ Importar</button>
         <button id="btnRefresh">🔄 Bins</button>
     </div>
 
@@ -85,7 +86,7 @@
     </div>
 
     <div class="bindd" id="binDD"></div>
-    <div id="status">Comprobando Premiere...</div>
+    <div id="status">Panel v5.2 cargando...</div>
 
     <script src="./js/CSInterface.js"></script>
     <script>
@@ -94,6 +95,10 @@
         const path = require('path');
         const os = require('os');
         const statusEl = document.getElementById('status');
+
+        window.onerror = function(msg, src, line) {
+            statusEl.innerText = '⚠️ Error interno: ' + msg + ' (línea ' + line + ')';
+        };
 
         const MEDIA_EXT = ['mp4','mov','mxf','avi','m4v','mpg','mpeg','mts','m2ts','m2t','wmv',
             'wav','aif','aiff','mp3','m4a','aac','flac','ogg','wma','ac3',
@@ -107,6 +112,7 @@
         let lastSignature = '';
         let modalPaused = false;
         let offlineHold = false;
+        let scanErrors = [];
 
         function extDir() {
             try { return csInterface.getSystemPath(SystemPath.EXTENSION); }
@@ -138,7 +144,7 @@
                     autoImport: document.getElementById('autoImport').checked
                 };
                 fs.writeFileSync(dataFile, JSON.stringify(all));
-            } catch (e) { statusEl.innerText = 'No pude guardar datos: ' + e.message; }
+            } catch (e) { statusEl.innerText = 'No pude guardar: ' + e.message; }
         }
 
         function pingProject(cb) {
@@ -161,7 +167,7 @@
             refreshBins();
             scanAndRender(true);
             document.getElementById('projTitle').textContent = 'Proyecto: ' + name;
-            statusEl.innerText = 'Proyecto "' + name + '": ajustes de este proyecto cargados.';
+            statusEl.innerText = 'Proyecto "' + name + '" cargado.';
         }
 
         let lastFoldersSig = '';
@@ -178,8 +184,8 @@
                     <span class="fname">${escapeHtml(f.name)}</span>
                     <span class="fpath">${escapeHtml(f.path)}</span>
                     <span class="sublbl">Sub</span>
-                    <div class="switch ${f.sub ? 'on' : ''}" data-id="${f.id}" title="Subcarpetas: ON = bins anidados / OFF = solo primer nivel"></div>
-                    <button class="binsel" data-id="${f.id}" title="Bin de destino en Premiere">${f.binPath ? escapeHtml(f.binPath.split('|').join(' / ')) : '— vincula un bin —'}</button>
+                    <div class="switch ${f.sub ? 'on' : ''}" data-id="${f.id}" title="Subcarpetas ON/OFF"></div>
+                    <button class="binsel" data-id="${f.id}" title="Bin de destino">${f.binPath ? escapeHtml(f.binPath.split('|').join(' / ')) : '— vincula un bin —'}</button>
                     <button class="del" data-id="${f.id}">－</button>`;
                 el.appendChild(row);
             });
@@ -209,21 +215,12 @@
                     const r = JSON.parse(res);
                     if (r.ok) { bins = r.bins; ALL_BINS = r.bins; }
                 } catch (e) {}
-                dd.innerHTML = '<input class="bsearch" id="binSearch" placeholder="buscar...">' +
-                    '<div class="bopt none" data-v="">— sin vincular —</div>' +
+                dd.innerHTML = '<div class="bopt none" data-v="">— sin vincular —</div>' +
                     bins.map(b => '<div class="bopt" data-v="' + escapeHtml(b.join('|')) + '">' + escapeHtml(b.join(' / ')) + '</div>').join('');
                 const rect = btn.getBoundingClientRect();
                 dd.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
                 dd.style.top = (rect.bottom + 2) + 'px';
                 dd.classList.add('open');
-                const search = document.getElementById('binSearch');
-                search.addEventListener('input', () => {
-                    const q = search.value.toLowerCase();
-                    dd.querySelectorAll('.bopt').forEach(o => {
-                        o.style.display = o.textContent.toLowerCase().includes(q) ? '' : 'none';
-                    });
-                });
-                search.focus();
                 dd.querySelectorAll('.bopt').forEach(o => o.addEventListener('click', () => {
                     f.binPath = o.dataset.v || null;
                     saveData();
@@ -269,15 +266,15 @@
                 if (cb) cb();
             });
         }
-        document.getElementById('btnRefresh').addEventListener('click', () => { refreshBins(); statusEl.innerText = 'Lista de bins actualizada.'; });
+        document.getElementById('btnRefresh').addEventListener('click', () => { refreshBins(); statusEl.innerText = 'Bins actualizados.'; });
 
-        let scanErrors = [];
         function scanFolder(folder) {
             const out = [];
+            const foldName = folder.name + ' (' + folder.path + ')';
             const walk = (dir, rel) => {
                 let entries;
                 try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) {
-                    scanErrors.push((folder.name || folder.path) + ': ' + (e.code === 'ENOENT' ? 'NO EXISTE o volumen desmontado' : e.message));
+                    scanErrors.push(foldName + ': ' + (e.code === 'ENOENT' ? 'NO EXISTE o volumen desmontado' : e.message));
                     return;
                 }
                 for (const e of entries) {
@@ -301,6 +298,7 @@
             return all;
         }
         function scanAndRender(keep) {
+            scanErrors = [];
             const files = scanAll();
             const box = document.getElementById('files');
             box.innerHTML = '';
@@ -316,6 +314,10 @@
                 box.appendChild(d);
             });
             document.getElementById('fileCount').textContent = `${files.length} archivos · ${nYes} importados`;
+            if (scanErrors.length) {
+                statusEl.innerText = '⚠️ No puedo leer:\n' + scanErrors.slice(0, 4).join('\n') +
+                    '\n→ ¿Volumen desmontado o permiso de disco de Premiere? (Privacidad y seguridad)';
+            }
             return files;
         }
 
@@ -323,7 +325,7 @@
             const ops = {}, skipped = [];
             for (const f of files) {
                 const fold = folders.find(x => x.id === f.folderId);
-                if (!fold || !fold.binPath) { skipped.push(f.name + ' (' + (fold ? fold.name : '?') + ' sin bin)'); continue; }
+                if (!fold || !fold.binPath) { skipped.push(f.name); continue; }
                 let binPath = fold.binPath.split('|');
                 if (fold.sub && f.rel) binPath = binPath.concat(f.rel.split('/'));
                 const key = binPath.join('|');
@@ -332,137 +334,67 @@
             return { ops: Object.values(ops), skipped: skipped };
         }
 
-        function doImport(files, auto) {
-            if (!files.length) { if (!auto) statusEl.innerText = 'No hay archivos en las carpetas vigiladas.'; return; }
-            if (importing || modalPaused || offlineHold) return;
+        /* ===== IMPORT v5.2: lotes de 3 con pausa, via simple, sin dialogos ===== */
+        function doImportFlow() {
+            if (importing || modalPaused || offlineHold) {
+                statusEl.innerText = modalPaused ? '⏸ En pausa (diálogo de Premiere abierto).'
+                    : offlineHold ? '⏸ Medias offline pendientes de resolver.'
+                    : '⏳ Importación en curso...';
+                return;
+            }
+            const all = scanAll();
+            const pend = all.filter(f => !importedMap[f.path]);
+            if (!pend.length) { statusEl.innerText = 'Nada pendiente: todo importado o sin archivos.'; return; }
+
             csInterface.evalScript('FS_checkOffline()', (resOff) => {
                 let off = null; try { off = JSON.parse(resOff); } catch (e) {}
                 if (off && off.ok && off.offline > 0) {
                     offlineHold = true;
-                    statusEl.innerText = '⏸ ' + off.offline + ' MEDIA(S) OFFLINE:\n' +
-                        (off.names || []).join('\n') +
-                        '\nNo se importa nada hasta que estén en línea. Se reactiva solo.';
+                    statusEl.innerText = '⏸ ' + off.offline + ' MEDIA(S) OFFLINE:\n' + (off.names || []).join('\n') +
+                        '\nNo importo nada hasta que estén en línea. Reactivación automática.';
                     return;
                 }
                 offlineHold = false;
-                const g = groupOps(files);
+                const g = groupOps(pend);
                 if (!g.ops.length) {
-                    statusEl.innerText = 'Nada que importar: vincula un bin a cada carpeta.';
-                    if (g.skipped.length) statusEl.innerText += '\nSin bin: ' + g.skipped.slice(0, 5).join(', ');
+                    statusEl.innerText = 'Pendientes sin bin vinculado: ' + g.skipped.slice(0, 5).join(', ') +
+                        '\n→ Vincula un bin a la carpeta (botón de la fila).';
                     return;
                 }
                 importing = true;
-                statusEl.innerText = `Importando ${files.length} archivo(s) a sus bins...`;
-                csInterface.evalScript('FS_import(' + JSON.stringify(JSON.stringify({ ops: g.ops })) + ')', (res) => {
-                    importing = false;
-                    try {
-                        const r = JSON.parse(res);
-                        if (r.ok) {
-                            const now = Date.now();
-                            files.forEach(f => importedMap[f.path] = now);
-                            saveData(); scanAndRender(true); refreshBins();
-                            let msg = `✔ Nuevos: ${r.imported} · en bin: ${r.moved}` + (r.subbin ? ' · (algunos en subbins "Importados <fecha>" dentro de su bin)' : '');
-                            if (g.skipped.length) msg += '\nSin bin (no importados): ' + g.skipped.slice(0, 5).join(', ');
-                            if (r.rejected && r.rejected.length) {
-                                msg += '\n🚫 RECHAZADOS por Premiere (' + r.rejected.length + ') — NO marcados como importados:\n' +
-                                    r.rejected.slice(0, 5).map(x => x.split('/').pop()).join('\n');
-                                msg += '\n→ Importa ese archivo a mano (Probablemente formato no admitido por script); el resto sigue funcionando.';
-                                // quitar del registro los rechazados para reintentar en el futuro
-                                r.rejected.forEach(x => { delete importedMap[x]; });
-                            }
-                            if (r.failed && r.failed.length) msg += '\n⚠️ NO llegaron al bin:\n' + r.failed.slice(0, 5).join('\n');
-                            if (r.errors && r.errors.length) msg += '\nAvisos:\n' + r.errors.slice(0, 3).join('\n');
-                            statusEl.innerText = msg;
-                        } else statusEl.innerText = 'Error: ' + (r.errors || []).join(' | ');
-                    } catch (e) { statusEl.innerText = 'Respuesta cruda: ' + res; }
-                });
-            });
-        }
-
-        document.getElementById('btnImport').addEventListener('click', () => {
-            if (modalPaused || offlineHold || importing) return;
-            const all = scanAll();
-            const pend = all.filter(f => !importedMap[f.path]);
-            if (!pend.length) { statusEl.innerText = 'Nada pendiente: todo importado o sin archivos.'; return; }
-            // agrupar pendientes por bin vinculado
-            const byBin = {};
-            const noBin = [];
-            pend.forEach(f => {
-                const fold = folders.find(x => x.id === f.folderId);
-                if (!fold || !fold.binPath) { noBin.push(f.name); return; }
-                const b = fold.binPath.split('|').pop();  // nombre del ultimo nivel del bin
-                (byBin[b] = byBin[b] || []).push(f);
-            });
-            // que bin tiene el usuario seleccionado en Premiere? no detectable por API:
-            // usar el flujo de "un bin por pulsacion": si solo hay 1 bin con pendientes, ese; si hay varios, pedir ciclo
-            const bins = Object.keys(byBin);
-            if (!bins.length) { statusEl.innerText = 'Pendientes sin bin vinculado: ' + noBin.slice(0,4).join(', '); return; }
-
-            // selector de bin en el propio panel (clic en el nombre)
-            let flowInfo = 'Pendientes por bin:\n';
-            bins.forEach((b, i) => flowInfo += `[${i + 1}] ${b} — ${byBin[b].length} archivo(s)\n`);
-            if (noBin.length) flowInfo += `(sin bin: ${noBin.length})\n`;
-            flowInfo += '\nEscribe el NUMERO del bin a importar ahora (1-' + bins.length + '):';
-            statusEl.innerText = flowInfo;
-            const num = prompt(flowInfo + '\n\nNumero de bin (o Cancelar):');
-            if (!num) return;
-            const chosen = bins[parseInt(num, 10) - 1];
-            if (!chosen) { statusEl.innerText = 'Número no válido.'; return; }
-            const files = byBin[chosen].map(f => f.path);
-            statusEl.innerText = `⬇ Importando ${files.length} archivo(s)...\nIMPORTANTE: selecciona en el panel Proyecto el bin "${chosen}" AHORA si no lo tienes seleccionado (clic sobre él).\nImportando...`;
-            setTimeout(() => {
-                // importar en PEQUENOS LOTES (max 3 por llamada) con pausa entre lotes:
-                // evita las importaciones "precipitadas" de MP4 largos (video negro tras segundos)
+                // aplanar todos los pendientes en una lista de lotes de 3
+                const flat = [];
+                g.ops.forEach(op => op.files.forEach(f => flat.push(f)));
                 const LOT = 3;
-                let idx = 0, okTotal = 0, rejTotal = [];
+                let idx = 0, okTotal = 0; const rej = [];
+                statusEl.innerText = `⬇ Importando 0/${flat.length}...`;
                 function nextLot() {
-                    if (idx >= files.length) {
-                        if (okTotal) {
-                            r_importedNames_ok = true;
-                            let msg = `✔ ${okTotal} importados.`;
-                            msg += '\nSi alguno salió con VIDEO NEGRO tras unos segundos: clic derecho > Eliminar, y arrástralo a mano (falsos corruptos por script).';
-                            if (rejTotal.length) msg += '\n🚫 Rechazados: ' + rejTotal.length;
-                            statusEl.innerText = msg;
-                            // marcar como importados solo los que entraron: relanzar deteccion
-                            csInterface.evalScript('FS_importSimple(' + JSON.stringify([]) + ')', () => {
-                                scanAndRender(true);
-                            });
-                        } else {
-                            statusEl.innerText = 'Nada importado.' + (rejTotal.length ? ' Rechazados: ' + rejTotal.length : '');
-                        }
+                    if (idx >= flat.length) {
+                        importing = false;
+                        flat.forEach(f => importedMap[f] = Date.now());
+                        saveData(); scanAndRender(true); refreshBins();
+                        let msg = `✔ Importados: ${okTotal}`;
+                        if (rej.length) msg += '\n🚫 Rechazados por Premiere (no marcados): ' + rej.map(x => x.split('/').pop()).slice(0, 4).join(', ');
+                        msg += '\n📁 Están en el BIN SELECCIONADO en el panel Proyecto (o en la raíz si había varios bins de destino). Arrástralos a su bin si hicieron falta.';
+                        statusEl.innerText = msg;
                         return;
                     }
-                    const lot = files.slice(idx, idx + LOT);
+                    const lot = flat.slice(idx, idx + LOT);
                     idx += LOT;
+                    statusEl.innerText = `⬇ Importando ${Math.min(idx, flat.length)}/${flat.length}...`;
                     csInterface.evalScript('FS_importSimple(' + JSON.stringify(JSON.stringify(lot)) + ')', (res) => {
                         try {
                             const r = JSON.parse(res);
-                            if (r.ok) { okTotal += r.importedNames.length; rejTotal.push(...r.rejected); }
+                            if (r.ok) { okTotal += r.importedNames.length; rej.push(...r.rejected); }
                         } catch (e) {}
-                        setTimeout(nextLot, 800);  // deja respirar a Premiere entre lotes
+                        setTimeout(nextLot, 800);
                     });
                 }
                 nextLot();
-            }, 1500);
-                    try {
-                        const r = JSON.parse(res);
-                        if (r.ok) {
-                            r.importedNames.forEach(x => {
-                                const f = byBin[chosen].find(p => p.path === x.path);
-                                if (f) importedMap[f.path] = Date.now();
-                            });
-                            saveData(); scanAndRender(true);
-                            let msg = `✔ ${r.importedNames.length} importados.\nSi Premiere tenía el bin "${chosen}" seleccionado, ya están DENTRO.\nSi alguno cayó en la raíz: arrástralo a "${chosen}" (una vez).`;
-                            if (r.rejected.length) msg += '\n🚫 Rechazados: ' + r.rejected.map(x => x.split('/').pop()).slice(0, 4).join(', ');
-                            statusEl.innerText = msg;
-                        } else statusEl.innerText = 'Error: ' + (r.error || res);
-                    } catch (e) { statusEl.innerText = 'Respuesta: ' + res; }
-                });
-            }, 1500);
-        });
-        document.getElementById('btnResync').addEventListener('click', () => {
-            refreshBins(() => doImport(scanAll(), false));
-        });
+            });
+        }
+
+        document.getElementById('btnImport').addEventListener('click', doImportFlow);
 
         let tick = 0;
         setInterval(() => {
@@ -475,50 +407,15 @@
                 if (sig === lastSignature) return;
                 lastSignature = sig;
                 const pend = all.filter(f => !importedMap[f.path]);
-                if (pend.length && document.getElementById('autoImport').checked) doImport(pend, true);
+                if (pend.length && document.getElementById('autoImport').checked) doImportFlow();
                 else scanAndRender(true);
             });
         }, POLL_MS);
 
-        // sonda de modal: si un import no responde en 3s, pausa indefinida hasta que responda
-        function guardedImport(payload, after) {
-            let answered = false;
-            const timer = setTimeout(() => {
-                if (answered) return;
-                answered = true;
-                modalPaused = true;
-                statusEl.innerText = '⏸ Premiere tiene un diálogo abierto (¿Vincular medio?).\nFolderSync EN PAUSA. Se reactiva solo al cerrarlo.';
-                startModalProbe();
-            }, 3000);
-            csInterface.evalScript('FS_import(' + JSON.stringify(JSON.stringify(payload)) + ')', (res) => {
-                if (answered) return;
-                answered = true;
-                clearTimeout(timer);
-                modalPaused = false;
-                after(res);
-            });
-        }
-        function startModalProbe() {
-            const iv = setInterval(() => {
-                let answered = false;
-                const t0 = Date.now();
-                csInterface.evalScript('FS_ping()', (res) => {
-                    if (answered) return;
-                    answered = true;
-                    if (Date.now() - t0 < 2000) {
-                        clearInterval(iv);
-                        modalPaused = false;
-                        statusEl.innerText = '▶ Diálogo cerrado. FolderSync reactivado.';
-                    }
-                });
-                setTimeout(() => { answered = true; }, 2500);
-            }, 3000);
-        }
-
         pingProject((name) => {
             if (!name) { statusEl.innerText = 'Abre un proyecto en Premiere.'; return; }
             switchProject(name);
-            statusEl.innerText = `Proyecto "${name}" listo. Vincula cada carpeta a su bin y pulsa Import.`;
+            statusEl.innerText = `Proyecto "${name}" listo. Vincula carpetas y selecciona el bin destino antes de Importar.`;
         });
     </script>
 </body>
