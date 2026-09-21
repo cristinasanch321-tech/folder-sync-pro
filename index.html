@@ -305,13 +305,22 @@
             box.innerHTML = '';
             let nYes = 0;
             files.sort((a, b) => a.folderName.localeCompare(b.folderName) || a.name.localeCompare(b.name));
+            let lastFolder = null;
             files.forEach(x => {
                 const imp = !!importedMap[x.path];
                 if (imp) nYes++;
+                // encabezado por carpeta
+                if (x.folderName !== lastFolder) {
+                    lastFolder = x.folderName;
+                    const h = document.createElement('div');
+                    h.style.cssText = 'color:#6ab04c;font-weight:bold;padding:6px 4px 2px;border-bottom:2px solid #333;';
+                    h.textContent = '📁 ' + x.folderName;
+                    box.appendChild(h);
+                }
                 const d = document.createElement('div');
                 d.className = 'file';
                 d.innerHTML = `<div class="sdot ${imp ? 'yes' : ''}"></div>
-                    <span>${escapeHtml(x.name)}</span><span class="flek">${escapeHtml(x.folderName)}${x.rel ? '/' + escapeHtml(x.rel) : ''}</span>`;
+                    <span>${escapeHtml(x.name)}</span><span class="flek">${escapeHtml(x.rel || 'primer nivel')}</span>`;
                 box.appendChild(d);
             });
             document.getElementById('fileCount').textContent = `${files.length} archivos · ${nYes} importados`;
