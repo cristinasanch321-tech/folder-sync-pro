@@ -411,7 +411,39 @@
             const files = byBin[chosen].map(f => f.path);
             statusEl.innerText = `⬇ Importando ${files.length} archivo(s)...\nIMPORTANTE: selecciona en el panel Proyecto el bin "${chosen}" AHORA si no lo tienes seleccionado (clic sobre él).\nImportando...`;
             setTimeout(() => {
-                csInterface.evalScript('FS_importSimple(' + JSON.stringify(JSON.stringify(files)) + ')', (res) => {
+                // importar en PEQUENOS LOTES (max 3 por llamada) con pausa entre lotes:
+                // evita las importaciones "precipitadas" de MP4 largos (video negro tras segundos)
+                const LOT = 3;
+                let idx = 0, okTotal = 0, rejTotal = [];
+                function nextLot() {
+                    if (idx >= files.length) {
+                        if (okTotal) {
+                            r_importedNames_ok = true;
+                            let msg = `✔ ${okTotal} importados.`;
+                            msg += '\nSi alguno salió con VIDEO NEGRO tras unos segundos: clic derecho > Eliminar, y arrástralo a mano (falsos corruptos por script).';
+                            if (rejTotal.length) msg += '\n🚫 Rechazados: ' + rejTotal.length;
+                            statusEl.innerText = msg;
+                            // marcar como importados solo los que entraron: relanzar deteccion
+                            csInterface.evalScript('FS_importSimple(' + JSON.stringify([]) + ')', () => {
+                                scanAndRender(true);
+                            });
+                        } else {
+                            statusEl.innerText = 'Nada importado.' + (rejTotal.length ? ' Rechazados: ' + rejTotal.length : '');
+                        }
+                        return;
+                    }
+                    const lot = files.slice(idx, idx + LOT);
+                    idx += LOT;
+                    csInterface.evalScript('FS_importSimple(' + JSON.stringify(JSON.stringify(lot)) + ')', (res) => {
+                        try {
+                            const r = JSON.parse(res);
+                            if (r.ok) { okTotal += r.importedNames.length; rejTotal.push(...r.rejected); }
+                        } catch (e) {}
+                        setTimeout(nextLot, 800);  // deja respirar a Premiere entre lotes
+                    });
+                }
+                nextLot();
+            }, 1500);
                     try {
                         const r = JSON.parse(res);
                         if (r.ok) {
