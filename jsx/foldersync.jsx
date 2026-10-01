@@ -138,7 +138,7 @@ function placeFile(mp, bin, res, err) {
     var it = findItemByMediaPath(mp);
     if (!it) {
         var ok = false;
-        try { ok = app.project.importFiles([mp], true, bin, true); } catch (eI) { ok = false; }
+        try { ok = app.project.importFiles([mp], false, bin, false); } catch (eI) { ok = false; }
         var under2 = pathsUnder(bin);
         if (under2[mp]) { res.imported++; res.moved++; return; }
         // fallback: import simple (via manual)
