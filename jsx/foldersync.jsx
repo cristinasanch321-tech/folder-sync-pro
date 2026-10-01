@@ -323,8 +323,15 @@ function FS_getSelectedBin() {
 
 /* importa archivos a raiz (via simple) y devuelve lista de nombres+mediaPath
    para que el panel sepa exactamente que acaba de entrar (aunque caiga en raiz) */
-function FS_importSimple(paths) {
+function decodePathComponent(str) {
+    var decoded = decodeURIComponent(str);
+    return decoded.replace(/%20/g, ' ');
+}
+
+function FS_importSimple(pathsRaw) {
     var res = { ok: false, importedNames: [], rejected: [] };
+    var paths = [];
+    for (var p0 = 0; p0 < pathsRaw.length; p0++) paths.push(decodePathComponent(pathsRaw[p0]));
     try {
         if (!app.project) { res.error = "No hay proyecto"; return J(res); }
         var before = {};
