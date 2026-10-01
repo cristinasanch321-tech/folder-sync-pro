@@ -7,7 +7,7 @@ function normalizeExtendScriptPath(path) {
     return String(path)
       .replace(/^\\\\\?\\\\/g, '')
       .replace(/\\\\/g, '/')
-      .replace(/([^:])\/++/g, '$1')
+      .replace(/([^:])\/{2,}/g, '$1')
       .replace(/\/+$/, '');
 }
 
