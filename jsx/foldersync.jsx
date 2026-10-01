@@ -325,6 +325,7 @@ function FS_importSimple(paths) {
             }
         })(app.project.rootItem);
         try { app.project.importFiles(paths); } catch (eI) {}
+        var found = {};
         (function walk2(bin) {
             var n = bin.children.numItems;
             for (var i = 0; i < n; i++) {
@@ -332,12 +333,17 @@ function FS_importSimple(paths) {
                 if (c.type === ProjectItemType.BIN) { walk2(c); continue; }
                 var mp = "";
                 try { mp = c.getMediaPath(); } catch (e2) {}
-                if (mp && !before[mp]) {
-                    var nm = mp.split("/").pop();
-                    res.importedNames.push({ name: nm, path: mp });
-                }
+                if (mp && !before[mp]) found[mp] = c.name;
             }
         })(app.project.rootItem);
+        // SOLO los que existen de verdad en el proyecto; los demas = rechazados
+        for (var k = 0; k < paths.length; k++) {
+            if (found[paths[k]]) {
+                res.importedNames.push({ name: found[paths[k]], path: paths[k] });
+            } else {
+                res.rejected.push(paths[k]);
+            }
+        }
         // rechazados = pedidos que no aparecieron
         for (var k = 0; k < paths.length; k++) {
             var appeared = false;
