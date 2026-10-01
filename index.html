@@ -392,7 +392,7 @@
                     const lot = flat.slice(idx, idx + LOT);
                     idx += LOT;
                     statusEl.innerText = `⬇ Importando ${Math.min(idx, flat.length)}/${flat.length}...`;
-                    csInterface.evalScript('FS_importSimple(' + JSON.stringify(JSON.stringify(lot)) + ')', (res) => {
+                    csInterface.evalScript('FS_importSimple(' + JSON.stringify(lot.map(f => encodeURIComponent(f))) + ')', (res) => {
                         try {
                             const r = JSON.parse(res);
                             if (r.ok) { okTotal += r.importedNames.length; rej.push(...r.rejected); }
