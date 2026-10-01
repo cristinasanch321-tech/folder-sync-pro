@@ -2,6 +2,15 @@
    Importacion con destino REAL: app.project.importFiles(files, true, bin, true)
    + verificacion (el item debe quedar DENTRO del bin) + reubicacion de extraviados. */
 
+function normalizeExtendScriptPath(path) {
+    if (!path) return '';
+    return String(path)
+      .replace(/^\\\\\?\\\\/g, '')
+      .replace(/\\\\/g, '/')
+      .replace(/([^:])\/++/g, '$1')
+      .replace(/\/+$/, '');
+}
+
 function J(o) {
     var t = typeof o, k, i;
     if (o === null) return "null";
@@ -342,7 +351,7 @@ function FS_importSimple(pathsRaw) {
                 if (c.type === ProjectItemType.BIN) { walk(c); continue; }
                 var mp = "";
                 try { mp = c.getMediaPath(); } catch (e) {}
-                if (mp) before[mp] = 1;
+                if (mp) before[normalizeExtendScriptPath(mp)] = 1;
             }
         })(app.project.rootItem);
         for (var kk = 0; kk < paths.length; kk++) {
@@ -365,7 +374,7 @@ function FS_importSimple(pathsRaw) {
                 if (c.type === ProjectItemType.BIN) { walk2(c); continue; }
                 var mp = "";
                 try { mp = c.getMediaPath(); } catch (e2) {}
-                if (mp && !before[mp]) found[mp] = c.name;
+                var mpN = normalizeExtendScriptPath(mp); if (mpN && !before[mpN]) found[mpN] = c.name;
             }
         })(app.project.rootItem);
         // SOLO los que existen de verdad en el proyecto; los demas = rechazados
