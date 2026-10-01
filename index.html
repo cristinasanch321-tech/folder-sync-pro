@@ -383,7 +383,7 @@
                         importing = false;
                         flat.forEach(f => importedMap[f] = Date.now());
                         saveData(); scanAndRender(true); refreshBins();
-                        let msg = `✔ Importados: ${okTotal}`;
+                        let msg = `✔ Importados: ${okTotal} — están en el bin SELECCIONADO en el panel Proyecto (o en la raíz si no había ninguno).\n→ Verifica que estén en 01_MEDIA; si no, arrástralos.`;
                         if (rej.length) msg += '\n🚫 Rechazados por Premiere (no marcados): ' + rej.map(x => x.split('/').pop()).slice(0, 4).join(', ');
                         msg += '\n📁 Están en el BIN SELECCIONADO en el panel Proyecto (o en la raíz si había varios bins de destino). Arrástralos a su bin si hicieron falta.';
                         statusEl.innerText = msg;
