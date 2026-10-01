@@ -338,7 +338,18 @@ function FS_importSimple(paths) {
                 if (mp) before[mp] = 1;
             }
         })(app.project.rootItem);
-        try { app.project.importFiles(paths); } catch (eI) {}
+        for (var kk = 0; kk < paths.length; kk++) {
+            var pfk = new File(paths[kk]);
+            if (!pfk.exists) { res.rejected.push(paths[kk]); }
+        }
+        // solo importar los accesibles
+        var importables = [];
+        for (var km = 0; km < paths.length; km++) {
+            var ya = false;
+            for (var kr = 0; kr < res.rejected.length; kr++) if (res.rejected[kr] === paths[km]) { ya = true; break; }
+            if (!ya) importables.push(paths[km]);
+        }
+        try { app.project.importFiles(importables); } catch (eI) {}
         var found = {};
         (function walk2(bin) {
             var n = bin.children.numItems;
@@ -357,14 +368,6 @@ function FS_importSimple(paths) {
             } else {
                 res.rejected.push(paths[k]);
             }
-        }
-        // rechazados = pedidos que no aparecieron
-        for (var k = 0; k < paths.length; k++) {
-            var appeared = false;
-            for (var j = 0; j < res.importedNames.length; j++) {
-                if (res.importedNames[j].path === paths[k]) { appeared = true; break; }
-            }
-            if (!appeared) res.rejected.push(paths[k]);
         }
         res.ok = true;
         return J(res);

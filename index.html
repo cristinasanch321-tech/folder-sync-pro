@@ -406,10 +406,23 @@
 
         document.getElementById('btnImport').addEventListener('click', doImportFlow);
 
-        let tick = 0;
+                // (el listener btnDiag está fuera del intervalo, registrado una sola vez)
+
         setInterval(() => {
-            tick++;
-            document.getElementById('btnDiag').addEventListener('click', () => {
+            pingProject((name) => {
+                if (name && name !== CURRENT_PROJECT) { switchProject(name); return; }
+                if (importing || !folders.length || offlineHold) return;
+                const all = scanAll();
+                const sig = all.map(f => f.path + ':' + f.mtimeMs).sort().join('|');
+                if (sig === lastSignature) return;
+                lastSignature = sig;
+                const pend = all.filter(f => !importedMap[f.path]);
+                if (pend.length && document.getElementById('autoImport').checked) doImportFlow();
+                else scanAndRender(true);
+            });
+        }, POLL_MS);
+
+document.getElementById('btnDiag').addEventListener('click', () => {
             const out = ['── DIAGNÓSTICO DE LECTURA ──',
                 'Proyecto activo: ' + (CURRENT_PROJECT || 'NINGUNO'),
                 'Carpetas vigiladas: ' + folders.length];
@@ -426,19 +439,6 @@
             });
             statusEl.innerText = out.join('\n');
         });
-
-        pingProject((name) => {
-                if (name && name !== CURRENT_PROJECT) { switchProject(name); return; }
-                if (importing || !folders.length || offlineHold) return;
-                const all = scanAll();
-                const sig = all.map(f => f.path + ':' + f.mtimeMs).sort().join('|');
-                if (sig === lastSignature) return;
-                lastSignature = sig;
-                const pend = all.filter(f => !importedMap[f.path]);
-                if (pend.length && document.getElementById('autoImport').checked) doImportFlow();
-                else scanAndRender(true);
-            });
-        }, POLL_MS);
 
         pingProject((name) => {
             if (!name) { statusEl.innerText = 'Abre un proyecto en Premiere.'; return; }
