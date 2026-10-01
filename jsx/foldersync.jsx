@@ -135,6 +135,20 @@ function FS_listBins() {
 function placeFile(mp, bin, res, err) {
     var under = pathsUnder(bin);
     if (under[mp]) { res.moved++; return; }
+    // VERIFICACION PREVIA (tecnica Phantom): el archivo debe existir Y ser legible
+    // desde DENTRO de Premiere (esto usa los permisos del proceso de Premiere, no del Terminal)
+    var pf = new File(mp);
+    if (!pf.exists) {
+        res.rejected.push(mp);
+        err("NO ACCESIBLE desde Premiere (¿volumen montado?, ¿permiso TCC?): " + mp.split("/").pop());
+        return;
+    }
+    if (!pf.open("r")) {
+        res.rejected.push(mp);
+        err("SIN PERMISO de lectura para Premiere: " + mp.split("/").pop());
+        return;
+    }
+    pf.close();
     var it = findItemByMediaPath(mp);
     if (!it) {
         var ok = false;
