@@ -355,6 +355,21 @@
             const all = scanAll();
             const pend = all.filter(f => !importedMap[f.path]);
             if (!pend.length) { statusEl.innerText = 'Nada pendiente: todo importado o sin archivos.'; return; }
+            // RECORDATORIO OBLIGATORIO del bin destino antes de importar
+            const binsInfo = {};
+            pend.forEach(f => {
+                const fold = folders.find(x => x.id === f.folderId);
+                if (fold && fold.binPath) {
+                    const b = fold.binPath.split('|').pop();
+                    binsInfo[b] = (binsInfo[b] || 0) + 1;
+                }
+            });
+            const binsTxt = Object.keys(binsInfo).map(b => `"${b}" (${binsInfo[b]} archivos)`).join(' · ');
+            statusEl.innerText = '⚠️ ANTES DE IMPORTAR: haz CLIC sobre el bin ' + binsTxt +
+                ' en el PANEL PROYECTO de Premiere (queda seleccionado).\n' +
+                'Los archivos caerán DENTRO de ese bin.\n\n' +
+                'Pulsa ⬇ Importar de nuevo cuando el bin esté seleccionado.';
+            return;
 
             csInterface.evalScript('FS_checkOffline()', (resOff) => {
                 let off = null; try { off = JSON.parse(resOff); } catch (e) {}
