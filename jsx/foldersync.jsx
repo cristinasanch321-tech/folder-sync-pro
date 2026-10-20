@@ -1,6 +1,17 @@
-/* FolderSync Pro v3 - jsx/foldersync.jsx
-   Importacion con destino REAL: app.project.importFiles(files, true, bin, true)
-   + verificacion (el item debe quedar DENTRO del bin) + reubicacion de extraviados. */
+/* FolderSync Pro v6.8 - jsx/foldersync.jsx
+   FS_import: importacion con destino REAL por NOMBRE de bin (ensureBinPath: lo busca
+   case-insensitive/trim y lo CREA si falta) via app.project.importFiles(files, false, bin, false)
+   + verificacion (el item debe quedar DENTRO del bin) + reubicacion de extraviados.
+   v6.8: transporte Unicode completo (panel codifica con encodeURIComponent, JSX decodifica
+   con decodePathComponent) para rutas y nombres de bin con acentos/espacios. */
+
+/* recolector de bins creados por FS_import (info para el panel) */
+var FS_createdBins = null;
+
+/* nombre de bin normalizado: sin espacios extremos y en minusculas (comparacion tolerante) */
+function normBinName(s) {
+    return String(s).replace(/^\s+|\s+$/g, '').toLowerCase();
+}
 
 function normalizeExtendScriptPath(path) {
     if (!path) return '';
@@ -52,9 +63,15 @@ function findChildBin(bin, name, createIfMissing) {
     var n = bin.children.numItems;
     for (var i = 0; i < n; i++) {
         var c = bin.children[i];
-        if (isBin(c) && c.name.toLowerCase() === String(name).toLowerCase()) return c;
+        if (isBin(c) && normBinName(c.name) === normBinName(name)) return c;
     }
-    if (createIfMissing) { try { return bin.createBin(name); } catch (e) { return null; } }
+    if (createIfMissing) {
+        try {
+            var nb = bin.createBin(name);
+            if (nb && FS_createdBins) FS_createdBins.push(String(name));
+            return nb;
+        } catch (e) { return null; }
+    }
     return null;
 }
 
@@ -184,13 +201,15 @@ function placeFile(mp, bin, res, err) {
     } catch (eM) {}
     if (!done) { try { if (it.move && it.move(bin) === 0 && itemInBin(bin, it)) done = true; } catch (eM2) {} }
     if (done) { res.relocated++; res.moved++; }
-    else res.failed.push("raiz: " + it.name);
+    else res.failed.push(mp); /* quedo en raiz: el panel lo desmarca para reintentar la reubicacion */
 }
 
-/* payload: { ops: [ { files: [...], binPath: [...] } ] } — v4.8: uno a uno */
+/* payload: { ops: [ { files: [...], binPath: [...] } ] } — v6.8: cada ruta/bin viene
+   encodeURIComponentado desde el panel (transporte Unicode); aqui se decodifica. */
 function FS_import(batchJson) {
-    var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [] };
+    var res = { ok: false, imported: 0, moved: 0, relocated: 0, rejected: [], failed: [], errors: [], createdBins: [] };
     function err(m) { res.errors.push(String(m)); }
+    FS_createdBins = res.createdBins;
     try {
         if (!app.project) { err("No hay proyecto abierto"); return J(res); }
         var batch = eval("(" + batchJson + ")");
@@ -199,9 +218,11 @@ function FS_import(batchJson) {
             var op = batch.ops[i];
             if (!op.files || !op.files.length) continue;
             try {
-                var bin = ensureBinPath(op.binPath || []);
+                var binPath = [];
+                for (var b = 0; b < (op.binPath || []).length; b++) binPath.push(decodePathComponent(op.binPath[b]));
+                var bin = ensureBinPath(binPath);
                 for (var f = 0; f < op.files.length; f++) {
-                    try { placeFile(op.files[f], bin, res, err); }
+                    try { placeFile(decodePathComponent(op.files[f]), bin, res, err); }
                     catch (eF) { err("archivo: " + eF); }
                 }
             } catch (eOp) { err("op " + i + ": " + eOp); }

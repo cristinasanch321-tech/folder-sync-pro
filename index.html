@@ -65,11 +65,11 @@
     </div>
 
     <div class="card">
-        <label>Importación — cómo funciona</label>
+        <label>Importación — cómo funciona (v6.8, sin clics)</label>
         <div class="flowinfo">
-        1. En el panel <b>Proyecto de Premiere</b>, haz clic sobre el bin destino (queda seleccionado).<br>
-        2. Pulsa ⬇: importaré los pendientes de las carpetas vinculadas <b>a ese bin</b>.<br>
-        3. Como Premiere importa dentro del bin seleccionado, <b>caen dentro directamente</b>.
+        1. Vincula un bin a cada carpeta (botón de la fila: lista todos los bins del proyecto).<br>
+        2. Pulsa ⬇: importo los pendientes <b>directo dentro del bin vinculado</b> (anidados incluidos).<br>
+        3. Si el bin no existe, <b>se crea solo</b>. Nada de clics en el panel Proyecto.
         </div>
         <div id="flowInfo" style="margin-top:6px; font-size:10px; color:#6ab04c;"></div>
     </div>
@@ -87,7 +87,7 @@
     </div>
 
     <div class="bindd" id="binDD"></div>
-    <div id="status">Panel v5.2 cargando...</div>
+    <div id="status">Panel v6.8 cargando...</div>
 
     <script src="./js/CSInterface.js"></script>
     <script>
@@ -344,7 +344,9 @@
             return { ops: Object.values(ops), skipped: skipped };
         }
 
-        /* ===== IMPORT v5.2: lotes de 3 con pausa, via simple, sin dialogos ===== */
+        /* ===== IMPORT v6.8: directo al bin vinculado via FS_import — sin clics ni selección =====
+           (v6.7 y anteriores: el recordatorio del bin hacía SIEMPRE return y el import real
+            era código muerto inalcanzable — por eso nunca importaba aunque seleccionaras el bin) */
         function doImportFlow() {
             if (importing || modalPaused || offlineHold) {
                 statusEl.innerText = modalPaused ? '⏸ En pausa (diálogo de Premiere abierto).'
@@ -355,22 +357,12 @@
             const all = scanAll();
             const pend = all.filter(f => !importedMap[f.path]);
             if (!pend.length) { statusEl.innerText = 'Nada pendiente: todo importado o sin archivos.'; return; }
-            // RECORDATORIO OBLIGATORIO del bin destino antes de importar
-            const binsInfo = {};
-            pend.forEach(f => {
-                const fold = folders.find(x => x.id === f.folderId);
-                if (fold && fold.binPath) {
-                    const b = fold.binPath.split('|').pop();
-                    binsInfo[b] = (binsInfo[b] || 0) + 1;
-                }
-            });
-            const binsTxt = Object.keys(binsInfo).map(b => `"${b}" (${binsInfo[b]} archivos)`).join(' · ');
-            statusEl.innerText = '⚠️ ANTES DE IMPORTAR: haz CLIC sobre el bin ' + binsTxt +
-                ' en el PANEL PROYECTO de Premiere (queda seleccionado).\n' +
-                'Los archivos caerán DENTRO de ese bin.\n\n' +
-                'Pulsa ⬇ Importar de nuevo cuando el bin esté seleccionado.';
-            return;
-
+            const g = groupOps(pend);
+            if (!g.ops.length) {
+                statusEl.innerText = 'Pendientes sin bin vinculado: ' + g.skipped.slice(0, 5).join(', ') +
+                    '\n→ Vincula un bin a la carpeta (botón de la fila).';
+                return;
+            }
             csInterface.evalScript('FS_checkOffline()', (resOff) => {
                 let off = null; try { off = JSON.parse(resOff); } catch (e) {}
                 if (off && off.ok && off.offline > 0) {
@@ -380,42 +372,34 @@
                     return;
                 }
                 offlineHold = false;
-                const g = groupOps(pend);
-                if (!g.ops.length) {
-                    statusEl.innerText = 'Pendientes sin bin vinculado: ' + g.skipped.slice(0, 5).join(', ') +
-                        '\n→ Vincula un bin a la carpeta (botón de la fila).';
-                    return;
-                }
                 importing = true;
-                // aplanar todos los pendientes en una lista de lotes de 3
-                const flat = [];
-                g.ops.forEach(op => op.files.forEach(f => flat.push(f)));
-                const LOT = 3;
-                let idx = 0, okTotal = 0; const rej = [];
-                statusEl.innerText = `⬇ Importando 0/${flat.length}...`;
-                function nextLot() {
-                    if (idx >= flat.length) {
-                        importing = false;
-                        flat.forEach(f => importedMap[f] = Date.now());
-                        saveData(); scanAndRender(true); refreshBins();
-                        let msg = `✔ Importados: ${okTotal} — están en el bin SELECCIONADO en el panel Proyecto (o en la raíz si no había ninguno).\n→ Verifica que estén en 01_MEDIA; si no, arrástralos.`;
-                        if (rej.length) msg += '\n🚫 Rechazados por Premiere (no marcados): ' + rej.map(x => x.split('/').pop()).slice(0, 4).join(', ');
-                        msg += '\n📁 Están en el BIN SELECCIONADO en el panel Proyecto (o en la raíz si había varios bins de destino). Arrástralos a su bin si hicieron falta.';
-                        statusEl.innerText = msg;
-                        return;
-                    }
-                    const lot = flat.slice(idx, idx + LOT);
-                    idx += LOT;
-                    statusEl.innerText = `⬇ Importando ${Math.min(idx, flat.length)}/${flat.length}...`;
-                    csInterface.evalScript('FS_importSimple(' + JSON.stringify(lot.map(f => encodeURIComponent(f))) + ')', (res) => {
-                        try {
-                            const r = JSON.parse(res);
-                            if (r.ok) { okTotal += r.importedNames.length; rej.push(...r.rejected); }
-                        } catch (e) {}
-                        setTimeout(nextLot, 800);
-                    });
-                }
-                nextLot();
+                const total = g.ops.reduce((a, op) => a + op.files.length, 0);
+                statusEl.innerText = '⬇ Importando ' + total + ' archivo(s) directo al bin vinculado...';
+                // transporte Unicode: cada segmento de bin y cada ruta viajan encodeURIComponentados (acentos catalanes safe)
+                const payload = JSON.stringify({ ops: g.ops.map(op => ({
+                    binPath: op.binPath.map(s => encodeURIComponent(s)),
+                    files: op.files.map(s => encodeURIComponent(s))
+                })) });
+                csInterface.evalScript('FS_import(' + JSON.stringify(payload) + ')', (res) => {
+                    importing = false;
+                    let r = null; try { r = JSON.parse(res); } catch (e) {}
+                    if (!r) { statusEl.innerText = '⚠️ Respuesta ilegible de Premiere:\n' + String(res).slice(0, 300); return; }
+                    // marcar como importados todos MENOS rechazados y fallidos (esos quedan pendientes y se reintentan)
+                    const rejSet = {}; (r.rejected || []).forEach(p => rejSet[p] = 1);
+                    const failSet = {}; (r.failed || []).forEach(p => failSet[p] = 1);
+                    pend.forEach(f => { if (!rejSet[f.path] && !failSet[f.path]) importedMap[f.path] = Date.now(); });
+                    saveData(); scanAndRender(true); refreshBins();
+                    let msg = '✔ En el bin destino: ' + (r.moved || 0) +
+                        ' (importados ahora: ' + (r.imported || 0) + ', reubicados: ' + (r.relocated || 0) + ')';
+                    if (r.createdBins && r.createdBins.length) msg += '\n🆕 Bin creado (no existía): ' + r.createdBins.join(', ');
+                    if ((r.failed || []).length) msg += '\n⚠️ Quedaron en la RAÍZ (reubico en la próxima importación): ' +
+                        r.failed.map(x => x.split('/').pop()).slice(0, 4).join(', ');
+                    if ((r.rejected || []).length) msg += '\n🚫 Rechazados por Premiere (NO marcados, se reintentan): ' +
+                        r.rejected.map(x => x.split('/').pop()).slice(0, 4).join(', ');
+                    if (g.skipped.length) msg += '\n(Quedan pendientes sin bin vinculado: ' + g.skipped.length + ')';
+                    if ((r.errors || []).length) msg += '\nℹ️ ' + r.errors.slice(0, 3).join(' | ');
+                    statusEl.innerText = msg;
+                });
             });
         }
 
@@ -458,7 +442,7 @@ document.getElementById('btnDiag').addEventListener('click', () => {
         pingProject((name) => {
             if (!name) { statusEl.innerText = 'Abre un proyecto en Premiere.'; return; }
             switchProject(name);
-            statusEl.innerText = `Proyecto "${name}" listo. Vincula carpetas y selecciona el bin destino antes de Importar.`;
+            statusEl.innerText = `Proyecto "${name}" listo. Vincula carpetas y su bin destino; ⬇ importa directo al bin vinculado.`;
         });
     </script>
 </body>
